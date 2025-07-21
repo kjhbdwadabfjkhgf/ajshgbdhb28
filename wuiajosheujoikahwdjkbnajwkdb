@@ -36,17 +36,19 @@ killTab:AddLabel("by Muki")
 rebirthTab:AddLabel("by Muki")
 farmingTab:AddLabel("by Muki")
 
--- == PLAYER WL/BL DROPDOWN ==
-local playerNames = {}
-for _, plr in ipairs(Players:GetPlayers()) do
-    if plr ~= player then
-        table.insert(playerNames, plr.Name)
-    end
-end
+-- == PLAYER WL/BL DROPDOWN (dynamisch) ==
 local selectedPlayer = nil
 
-local dropdown = manageTab:AddDropdown("Spieler auswählen", playerNames, function(name)
+manageTab:AddDropdown("Spieler auswählen", {}, function(name)
     selectedPlayer = name
+end, function()
+    local names = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player then
+            table.insert(names, plr.Name)
+        end
+    end
+    return names
 end)
 
 manageTab:AddButton("Whitelist ausgewählter Spieler", function()
@@ -68,21 +70,6 @@ manageTab:AddButton("Blacklist ausgewählter Spieler", function()
         print(plr.Name .. " auf Blacklist für Auto Kill 1.")
     end
 end)
-
--- Refreshfunktion (Dropdown dynamisch ändern ist in Elerium NICHT direkt möglich!)
-local function refreshDropdown()
-    playerNames = {}
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= player then
-            table.insert(playerNames, plr.Name)
-        end
-    end
-    -- Hinweis: Dropdown wird NICHT automatisch aktualisiert!
-    -- Neu starten, um neue Spieler zu sehen!
-end
-
-Players.PlayerAdded:Connect(refreshDropdown)
-Players.PlayerRemoving:Connect(refreshDropdown)
 
 -- == AUTO MUSCLE (Auto Lift) ==
 local autoMuscleEnabled = false
