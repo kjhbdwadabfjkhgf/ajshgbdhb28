@@ -36,27 +36,53 @@ killTab:AddLabel("by Muki")
 rebirthTab:AddLabel("by Muki")
 farmingTab:AddLabel("by Muki")
 
--- == PLAYER WL/BL BUTTONS ==
-local function refreshPlayerList()
-    for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= player then
-            manageTab:AddButton("Whitelist " .. plr.Name, function()
-                autoKill1Whitelist[plr.UserId] = true
-                autoKill1Blacklist[plr.UserId] = nil
-                print(plr.Name .. " auf Whitelist für Auto Kill 1.")
-            end)
-            manageTab:AddButton("Blacklist " .. plr.Name, function()
-                autoKill1Blacklist[plr.UserId] = true
-                autoKill1Whitelist[plr.UserId] = nil
-                print(plr.Name .. " auf Blacklist für Auto Kill 1.")
-            end)
-        end
+-- == PLAYER WL/BL DROPDOWN ==
+local playerNames = {}
+for _, plr in ipairs(Players:GetPlayers()) do
+    if plr ~= player then
+        table.insert(playerNames, plr.Name)
     end
 end
+local selectedPlayer = nil
 
-refreshPlayerList()
-Players.PlayerAdded:Connect(refreshPlayerList)
-Players.PlayerRemoving:Connect(refreshPlayerList)
+local dropdown = manageTab:AddDropdown("Spieler auswählen", playerNames, function(name)
+    selectedPlayer = name
+end)
+
+manageTab:AddButton("Whitelist ausgewählter Spieler", function()
+    if not selectedPlayer then return end
+    local plr = Players:FindFirstChild(selectedPlayer)
+    if plr then
+        autoKill1Whitelist[plr.UserId] = true
+        autoKill1Blacklist[plr.UserId] = nil
+        print(plr.Name .. " auf Whitelist für Auto Kill 1.")
+    end
+end)
+
+manageTab:AddButton("Blacklist ausgewählter Spieler", function()
+    if not selectedPlayer then return end
+    local plr = Players:FindFirstChild(selectedPlayer)
+    if plr then
+        autoKill1Blacklist[plr.UserId] = true
+        autoKill1Whitelist[plr.UserId] = nil
+        print(plr.Name .. " auf Blacklist für Auto Kill 1.")
+    end
+end)
+
+-- Refreshfunktion (Dropdown dynamisch ändern ist in Elerium NICHT direkt möglich!)
+local function refreshDropdown()
+    playerNames = {}
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player then
+            table.insert(playerNames, plr.Name)
+        end
+    end
+    -- Hinweis: Dropdown wird NICHT automatisch aktualisiert!
+    -- Neu starten, um neue Spieler zu sehen!
+end
+
+Players.PlayerAdded:Connect(refreshDropdown)
+Players.PlayerRemoving:Connect(refreshDropdown)
 
 -- == AUTO MUSCLE (Auto Lift) ==
 local autoMuscleEnabled = false
