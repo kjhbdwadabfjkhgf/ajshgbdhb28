@@ -52,35 +52,30 @@ task.spawn(function()
 end)
 
 -- == PUNCH SPEED BYPASS (AutoPunch mit Tool-Auto-Use) ==
-local toolName = "PunchTool" -- <--- Passe diesen Namen auf DEIN Tool an!
 local autoPunchBypassEnabled = false
 mainTab:AddSwitch("Punch Speed Bypass", function(state)
     autoPunchBypassEnabled = state
 end)
+
+local player = game.Players.LocalPlayer
+local muscleEvent = player:WaitForChild("muscleEvent")
+local hands = {"leftHand", "rightHand"}
+
 task.spawn(function()
     while true do
         if autoPunchBypassEnabled then
-            local character = player.Character
-            -- Tool suchen und equippen, falls nicht equipped:
-            local tool = character and (character:FindFirstChildOfClass("Tool") or player.Backpack:FindFirstChild(toolName))
-            if tool and not character:FindFirstChildOfClass("Tool") then
-                player.Character.Humanoid:EquipTool(tool)
-                task.wait(0.1)
+            for _, hand in ipairs(hands) do
+                pcall(function()
+                    muscleEvent:FireServer("punch", hand)
+                end)
             end
-            -- Tool benutzen (falls unterstützt)
-            if tool and tool:FindFirstChild("Activate") then
-                tool:Activate()
-            end
-            -- Remote so schnell wie möglich spammen:
-            pcall(function()
-                muscleEvent:FireServer("punch", "rightHand")
-            end)
-            task.wait(0.03) -- Geschwindigkeit beliebig anpassbar
+            task.wait(0.02)
         else
             task.wait(0.1)
         end
     end
 end)
+
 
 -- == AUTO KILL 1 ==
 local autoKillEnabled = false
