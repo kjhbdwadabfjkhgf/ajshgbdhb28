@@ -4,7 +4,6 @@ local player = Players.LocalPlayer
 local workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
 local autoKill1Whitelist = {}
 local autoKill1Blacklist = {}
 
@@ -36,41 +35,6 @@ killTab:AddLabel("by Muki")
 rebirthTab:AddLabel("by Muki")
 farmingTab:AddLabel("by Muki")
 
--- == PLAYER WL/BL DROPDOWN (dynamisch) ==
-local selectedPlayer = nil
-
-manageTab:AddDropdown("Spieler auswählen", {}, function(name)
-    selectedPlayer = name
-end, function()
-    local names = {}
-    for _, plr in ipairs(Players:GetPlayers()) do
-        if plr ~= player then
-            table.insert(names, plr.Name)
-        end
-    end
-    return names
-end)
-
-manageTab:AddButton("Whitelist ausgewählter Spieler", function()
-    if not selectedPlayer then return end
-    local plr = Players:FindFirstChild(selectedPlayer)
-    if plr then
-        autoKill1Whitelist[plr.UserId] = true
-        autoKill1Blacklist[plr.UserId] = nil
-        print(plr.Name .. " auf Whitelist für Auto Kill 1.")
-    end
-end)
-
-manageTab:AddButton("Blacklist ausgewählter Spieler", function()
-    if not selectedPlayer then return end
-    local plr = Players:FindFirstChild(selectedPlayer)
-    if plr then
-        autoKill1Blacklist[plr.UserId] = true
-        autoKill1Whitelist[plr.UserId] = nil
-        print(plr.Name .. " auf Blacklist für Auto Kill 1.")
-    end
-end)
-
 -- == AUTO MUSCLE (Auto Lift) ==
 local autoMuscleEnabled = false
 mainTab:AddSwitch("Auto Lift", function(state)
@@ -87,7 +51,38 @@ task.spawn(function()
     end
 end)
 
--- == AUTO KILL 1 == (mit WL/BL)
+-- == PUNCH SPEED BYPASS (AutoPunch mit Tool-Auto-Use) ==
+local toolName = "PunchTool" -- <--- Passe diesen Namen auf DEIN Tool an!
+local autoPunchBypassEnabled = false
+mainTab:AddSwitch("Punch Speed Bypass", function(state)
+    autoPunchBypassEnabled = state
+end)
+task.spawn(function()
+    while true do
+        if autoPunchBypassEnabled then
+            local character = player.Character
+            -- Tool suchen und equippen, falls nicht equipped:
+            local tool = character and (character:FindFirstChildOfClass("Tool") or player.Backpack:FindFirstChild(toolName))
+            if tool and not character:FindFirstChildOfClass("Tool") then
+                player.Character.Humanoid:EquipTool(tool)
+                task.wait(0.1)
+            end
+            -- Tool benutzen (falls unterstützt)
+            if tool and tool:FindFirstChild("Activate") then
+                tool:Activate()
+            end
+            -- Remote so schnell wie möglich spammen:
+            pcall(function()
+                muscleEvent:FireServer("punch", "rightHand")
+            end)
+            task.wait(0.03) -- Geschwindigkeit beliebig anpassbar
+        else
+            task.wait(0.1)
+        end
+    end
+end)
+
+-- == AUTO KILL 1 ==
 local autoKillEnabled = false
 killTab:AddSwitch("Auto Kill", function(state)
     autoKillEnabled = state
@@ -99,9 +94,6 @@ RunService.RenderStepped:Connect(function()
     local hrp = character.HumanoidRootPart
     for _, plr in pairs(Players:GetPlayers()) do
         if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-            -- Whitelist/Blacklist-Logik:
-            if autoKill1Whitelist[plr.UserId] then continue end
-            if next(autoKill1Blacklist) and not autoKill1Blacklist[plr.UserId] then continue end
             local db = plr.Character:FindFirstChild("DamageBox") or plr.Character:FindFirstChild("RightHand")
             if db and db:IsA("BasePart") then
                 db.CFrame = hrp.CFrame * CFrame.new(0, 0, -2)
