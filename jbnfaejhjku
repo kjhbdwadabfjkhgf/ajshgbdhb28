@@ -1,50 +1,155 @@
+-- == LIBRARY LADEN ==
 local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/obeseinsect/roblox/main/Ui%20Libraries/Elerium.lua"))()
+
+-- == FENSTER ==
 local Window = library:AddWindow("Elerium Dex", {
-    main_color = Color3.fromRGB(40, 40, 60),
-    min_size = Vector2.new(700, 600),
+    main_color = Color3.fromRGB(45,45,70),
+    min_size = Vector2.new(750, 600),
     toggle_key = Enum.KeyCode.RightShift,
     can_resize = true,
 })
 
+-- == TABS ==
 local explorerTab = Window:AddTab("Explorer")
-explorerTab:Clear()
+local propTab = Window:AddTab("Properties")
+local scriptTab = Window:AddTab("Script Viewer")
+local remoteTab = Window:AddTab("Remotes")
+local searchTab = Window:AddTab("Search")
 
--- Speichert geöffnete Nodes, damit wir wissen, wo auf-/zugeklappt ist
-local openNodes = {}
+-- == TREEVIEW ==
 
--- Hauptfunktion: Listet nur Children einer Instanz, mit Aufklapp-Button
-local function renderTree(parentTab, parentObj, depth)
-    local indent = string.rep("   ", depth)
-    local btnText = (openNodes[parentObj] and "▼ " or "► ")..indent..parentObj.Name.." ["..parentObj.ClassName.."]"
-    local btn = parentTab:AddButton(btnText, function()
-        -- Toggle open/close
-        openNodes[parentObj] = not openNodes[parentObj]
-        explorerTab:Clear()
-        renderTree(explorerTab, game, 0)
+local openNodes = {}  -- Speichert, welche Objekte "offen" sind
+local selectedObj = nil
+
+function renderTree(tab, obj, depth)
+    local indent = string.rep("    ", depth)
+    local hasChildren = #obj:GetChildren() > 0
+    local prefix = hasChildren and (openNodes[obj] and "▼ " or "► ") or "    "
+    local btn = tab:AddButton(prefix..indent..obj.Name.." ["..obj.ClassName.."]", function()
+        if hasChildren then
+            openNodes[obj] = not openNodes[obj]
+            explorerTab:Clear()
+            renderTree(explorerTab, game, 0)
+        end
     end)
-    -- Wenn offen: Zeige Children als weitere Buttons
-    if openNodes[parentObj] then
-        for _,child in ipairs(parentObj:GetChildren()) do
-            renderTree(parentTab, child, depth+1)
+    btn.MouseButton2Click:Connect(function()
+        selectedObj = obj
+        showProps(obj)
+        if obj:IsA("LocalScript") or obj:IsA("ModuleScript") then
+            showScript(obj)
+        end
+    end)
+    if openNodes[obj] then
+        for _,child in ipairs(obj:GetChildren()) do
+            renderTree(tab, child, depth + 1)
         end
     end
-    -- Bei Klick auf Objekt (nicht nur auf Pfeil), zeige Properties (wie vorher)
-    btn.MouseButton2Click:Connect(function()
-        local propTab = Window:AddTab("Properties")
-        propTab:Clear()
-        propTab:AddLabel("Properties: "..parentObj.Name.." ["..parentObj.ClassName.."]")
-        for _,prop in ipairs({"Name","ClassName","Parent","Archivable"}) do
-            local val; pcall(function() val = parentObj[prop] end)
-            propTab:AddLabel(prop..": "..tostring(val))
+end
+
+function refreshTree()
+    explorerTab:Clear()
+    explorerTab:AddLabel("game (Rechtsklick auf Objekt für Properties/Script)")
+    renderTree(explorerTab, game, 0)
+end
+
+refreshTree()
+game.DescendantAdded:Connect(refreshTree)
+game.DescendantRemoving:Connect(refreshTree)
+
+-- == PROPERTY PANEL ==
+function showProps(obj)
+    propTab:Clear()
+    propTab:AddLabel(obj.Name.." ["..obj.ClassName.."]")
+    local props = {"Name","ClassName","Parent","Archivable"}
+    for _,prop in ipairs(props) do
+        local val
+        pcall(function() val = obj[prop] end)
+        propTab:AddLabel(prop..": "..tostring(val))
+    end
+    if obj.GetAttributes then
+        for k,v in pairs(obj:GetAttributes()) do
+            propTab:AddLabel("Attr "..k..": "..tostring(v))
         end
-        -- Attribute
-        if parentObj.GetAttributes then
-            for k,v in pairs(parentObj:GetAttributes()) do
-                propTab:AddLabel("Attr "..k..": "..tostring(v))
+    end
+    -- Live-Updating Property (Beispiel für Position bei Parts)
+    if obj:IsA("BasePart") then
+        local posBox = propTab:AddBox({title="Position",content=tostring(obj.Position)})
+        propTab:AddButton("Setze Position", function()
+            local s = posBox:Get()
+            local x,y,z = string.match(s, "([%d%.%-]+),%s*([%d%.%-]+),%s*([%d%.%-]+)")
+            if x and y and z then
+                obj.Position = Vector3.new(tonumber(x), tonumber(y), tonumber(z))
             end
-        end
+        end)
+    end
+end
+
+-- == SCRIPT VIEWER ==
+function showScript(obj)
+    scriptTab:Clear()
+    local src = "Kein Zugriff oder kein Source!"
+    pcall(function() src = obj.Source end)
+    scriptTab:AddLabel("Script: "..obj.Name)
+    scriptTab:AddBox({content=src,readonly=true,lines=true})
+    scriptTab:AddButton("Kopiere Source", function()
+        setclipboard(src)
     end)
 end
 
--- Starte TreeView bei "game"
-renderTree(explorerTab, game, 0)
+-- == SUCHE ==
+local searchBox = searchTab:AddBox({title="Suche (Name/Klasse/Property)",content=""})
+searchTab:AddButton("Suchen", function()
+    local txt = searchBox:Get()
+    explorerTab:Clear()
+    explorerTab:AddLabel("Suchergebnisse für: "..txt)
+    local function search(obj, depth)
+        local found = false
+        if string.find(obj.Name:lower(), txt:lower()) or string.find(obj.ClassName:lower(), txt:lower()) then
+            found = true
+        end
+        for _,prop in ipairs({"Name","ClassName","Parent"}) do
+            local v; pcall(function() v=obj[prop] end)
+            if v and string.find(tostring(v):lower(), txt:lower()) then
+                found = true
+            end
+        end
+        if found then
+            renderTree(explorerTab, obj, depth)
+        end
+        for _,child in ipairs(obj:GetChildren()) do search(child, depth+1) end
+    end
+    search(game, 0)
+end)
+
+-- == REMOTE LOGGER ==
+remoteTab:AddLabel("Remote Log (nur FireServer/InvokeServer, Client→Server)")
+
+local remoteLog = {}
+local logBox = remoteTab:AddBox({content="",readonly=true,lines=true})
+local function logRemote(name, ...)
+    table.insert(remoteLog, {name, {...}})
+    local lines = {}
+    for i,v in ipairs(remoteLog) do
+        table.insert(lines, tostring(v[1]).." | Args: "..game:GetService("HttpService"):JSONEncode(v[2]))
+    end
+    logBox:Set(table.concat(lines,"\n"))
+end
+
+local mt = getrawmetatable(game)
+local old
+old = hookfunction(mt.__namecall, function(self, ...)
+    local m = getnamecallmethod()
+    if m == "FireServer" or m == "InvokeServer" then
+        logRemote(self:GetFullName(), ...)
+    end
+    return old(self, ...)
+end)
+
+-- == DARKMODE & DRAGGABLE ==
+Window.main_color = Color3.fromRGB(45,45,70)
+-- Verschiebbar, resize, toggle-key etc. sind durch Elerium Standard!
+
+-- == INFO ==
+Window:AddTab("Info"):AddLabel("Rechtsklick im Explorer: Properties/Script.\n\nAlle anderen Features im jeweiligen Tab.")
+
+-- Fertig!
