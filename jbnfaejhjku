@@ -1,63 +1,159 @@
--- == SERVICES UND GRUNDVARIABLEN ==
-local Players = game:GetService("Players")
-local player = Players.LocalPlayer
-
--- == Elerium laden ==
+-- == LIBRARY LADEN ==
 local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/obeseinsect/roblox/main/Ui%20Libraries/Elerium.lua"))()
 
-local Window = library:AddWindow("Elerium Dex Lite", {
-    main_color = Color3.fromRGB(60, 60, 90),
-    min_size = Vector2.new(500, 500),
+-- == BASISFENSTER ==
+local Window = library:AddWindow("Elerium Dex", {
+    main_color = Color3.fromRGB(40, 40, 60),
+    min_size = Vector2.new(650, 600),
     toggle_key = Enum.KeyCode.RightShift,
     can_resize = true,
 })
 
--- == Explorer-Funktion ==
-local function showChildren(tab, obj)
-    tab:AddLabel(obj.Name .. " [" .. obj.ClassName .. "]")
-    for _, child in ipairs(obj:GetChildren()) do
-        tab:AddButton(child.Name .. " [" .. child.ClassName .. "]", function()
-            -- Bei Klick: Properties anzeigen (in neuem Tab)
-            local propTab = Window:AddTab(child.Name)
-            propTab:AddLabel("Properties von: " .. child.Name)
-            for _, prop in ipairs({"ClassName", "Name", "Parent", "Archivable"}) do
-                local val
-                pcall(function() val = child[prop] end)
-                propTab:AddLabel(prop .. ": " .. tostring(val))
+-- == TABS ==
+local explorerTab = Window:AddTab("Explorer")
+local propTab     = Window:AddTab("Properties")
+local scriptTab   = Window:AddTab("Script Viewer")
+local remoteTab   = Window:AddTab("Remotes")
+local searchTab   = Window:AddTab("Search")
+
+-- === TREEVIEW (Explorer) ===
+local selectedObj = nil
+
+local function addTree(tab, obj, depth)
+    local indent = string.rep("   ", depth)
+    local btn = tab:AddButton(indent..obj.Name.." ["..obj.ClassName.."]", function()
+        selectedObj = obj
+        -- Zeige Properties und evtl. Script
+        propTab:Clear()
+        propTab:AddLabel("Properties: "..obj.Name.." ["..obj.ClassName.."]")
+        for _,prop in ipairs({"Name","ClassName","Parent","Archivable"}) do
+            local val; pcall(function() val = obj[prop] end)
+            propTab:AddLabel(prop..": "..tostring(val))
+        end
+        -- Attribute
+        if obj.GetAttributes then
+            for k,v in pairs(obj:GetAttributes()) do
+                propTab:AddLabel("Attr "..k..": "..tostring(v))
             end
-            -- Mehr Properties auslesen (z.B. Position, Size, Value, Value.Value ...)
-            for _, key in pairs(child:GetAttributes and child:GetAttributes() or {}) do
-                propTab:AddLabel("Attr " .. key .. ": " .. tostring(child:GetAttribute(key)))
-            end
-        end)
+        end
+        -- Wenn Script: Show script
+        if obj:IsA("LocalScript") or obj:IsA("ModuleScript") then
+            scriptTab:Clear()
+            local src = "Kein Zugriff!"
+            pcall(function() src = obj.Source end)
+            scriptTab:AddLabel("Script: "..obj.Name)
+            scriptTab:AddBox({content=src,readonly=true,lines=true})
+        end
+    end)
+    -- Rekursiv alle Kinder anzeigen
+    for _,child in ipairs(obj:GetChildren()) do
+        addTree(tab, child, depth+1)
     end
 end
 
--- == Für alle Hauptservices einen Tab erstellen ==
-local mainServices = {
-    game.Workspace,
-    game.Players,
-    game.ReplicatedStorage,
-    game.Lighting,
-    game.StarterGui,
-    game.StarterPack,
-    game.StarterPlayer,
-    game.SoundService,
-    game.TweenService,
-    game.HttpService
-}
+explorerTab:Clear()
+explorerTab:AddLabel("game (Alle Instanzen)")
+addTree(explorerTab, game, 0)
 
-for _, svc in ipairs(mainServices) do
-    local tab = Window:AddTab(svc.Name)
-    showChildren(tab, svc)
+-- === SUCHE ===
+local lastSearch = ""
+local searchBox = searchTab:AddBox({title="Suche (Name, Class...)",content=""})
+searchTab:AddButton("Suchen", function()
+    local txt = searchBox:Get()
+    lastSearch = txt
+    explorerTab:Clear()
+    local function search(obj, depth)
+        if string.find(obj.Name:lower(), txt:lower()) or string.find(obj.ClassName:lower(), txt:lower()) then
+            addTree(explorerTab, obj, depth)
+        end
+        for _,child in ipairs(obj:GetChildren()) do search(child, depth+1) end
+    end
+    search(game, 0)
+end)
+
+-- === REMOTES LOGGEN ===
+remoteTab:AddLabel("Remote Log (FireServer/InvokeServer)")
+
+local remoteLog = {}
+local logBox = remoteTab:AddBox({content="",readonly=true,lines=true})
+local function logRemote(name, ...)
+    table.insert(remoteLog, {name, {...}})
+    local lines = {}
+    for i,v in ipairs(remoteLog) do
+        table.insert(lines, tostring(v[1]).." | Args: "..game:GetService("HttpService"):JSONEncode(v[2]))
+    end
+    logBox:Set(table.concat(lines,"\n"))
 end
 
--- Beispiel: Extra "game" Tab für globale Services
-local gameTab = Window:AddTab("game")
-showChildren(gameTab, game)
+-- Hook Namecall für RemoteEvents/Funtions
+local mt = getrawmetatable(game)
+local old; old = hookfunction(mt.__namecall, function(self,...)
+    local m = getnamecallmethod()
+    if (m == "FireServer" or m == "InvokeServer") then
+        logRemote(self:GetFullName(), ...)
+    end
+    return old(self, ...)
+end)
 
--- == Bedienung ==
--- Klick auf einen Service-Tab → Klick auf ein Child → Properties öffnen sich im neuen Tab
+-- == DARKMODE SWITCH ==
+Window:AddTab("Einstellungen"):AddButton("Darkmode umschalten", function()
+    -- Einfach Beispiel: Maincolor tauschen (richtiger Theme-Switch wäre komplexer)
+    Window.main_color = Color3.fromRGB(30,30,40)
+end)
 
--- TIPP: 
--- Das ist der Start, du kannst Search, Aufklappen, Recursion, Property-Editor, Script-Viewer usw. beliebig einbauen!
+-- == LIVE-UPDATES (einfach) ==
+game.DescendantAdded:Connect(function(obj)
+    -- Einfach neu aufbauen, wenn etwas spawnt
+    explorerTab:Clear()
+    explorerTab:AddLabel("game (Alle Instanzen)")
+    addTree(explorerTab, game, 0)
+end)
+game.DescendantRemoving:Connect(function(obj)
+    explorerTab:Clear()
+    explorerTab:AddLabel("game (Alle Instanzen)")
+    addTree(explorerTab, game, 0)
+end)
+
+-- == HOTKEYS ==
+-- Already RightShift by Elerium
+
+-- == KONSOLE / SCRIPT EXECUTOR (Bonus) ==
+local execTab = Window:AddTab("Executor")
+local box = execTab:AddBox({title="Script",lines=true})
+execTab:AddButton("Execute", function()
+    local code = box:Get()
+    loadstring(code)()
+end)
+
+-- == CLIPBOARD SUPPORT ==
+scriptTab:AddButton("Kopiere Script-Source", function()
+    if selectedObj and (selectedObj:IsA("LocalScript") or selectedObj:IsA("ModuleScript")) then
+        local txt = "Kein Zugriff!"
+        pcall(function() txt = selectedObj.Source end)
+        setclipboard(txt)
+    end
+end)
+
+-- == WATCH (Beispiel für Health eines Spielers) ==
+local watchTab = Window:AddTab("Watch")
+watchTab:AddLabel("Wähle ein Objekt im Explorer und tippe Property:")
+local propBox = watchTab:AddBox({title="Property-Name",content="Health"})
+local watchBox = watchTab:AddBox({content="",readonly=true})
+watchTab:AddButton("Watch starten", function()
+    if selectedObj then
+        watchTab:AddLabel("Watching "..selectedObj.Name.."."..propBox:Get())
+        spawn(function()
+            while true do
+                local val = ""
+                pcall(function() val = selectedObj[propBox:Get()] end)
+                watchBox:Set(tostring(val))
+                wait(0.2)
+            end
+        end)
+    end
+end)
+
+-- == KONTEXTMENÜ, UNDO/REDO, EXPORT usw. => Lässt sich Schritt für Schritt ergänzen! ==
+
+-- Du kannst ALLES beliebig erweitern – sag, welchen Bereich du als nächstes Profi-mäßig ausgebaut haben willst!
+
