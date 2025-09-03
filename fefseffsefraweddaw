@@ -14,37 +14,32 @@ local Window = library:AddWindow("Muki's private", {
 })
 local killTab = Window:AddTab("Auto Kill")
 --autokill logik
--- Services (für den Loop)
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-
--- Dein Equip-Snippet (unverändert)
 local player = game.Players.LocalPlayer
 local char = player.Character or player.CharacterAdded:Wait()
 local humanoid = char:WaitForChild("Humanoid")
 local backpack = player:WaitForChild("Backpack")
-local punchTool = backpack:WaitForChild("Punch")
-humanoid:EquipTool(punchTool)
 
--- Dein Switch + Loop (unverändert; setzt voraus, dass killTab existiert)
 local autoKillEnabled = false
-killTab:AddSwitch("Auto Kill", function(state)
+killTab:AddSwitch("Auto Equip Punch", function(state)
     autoKillEnabled = state
 end)
 
-RunService.RenderStepped:Connect(function()
+game:GetService("RunService").RenderStepped:Connect(function()
     if not autoKillEnabled then return end
-    local character = player.Character
-    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
-    local hrp = character.HumanoidRootPart
-    for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-            local db = plr.Character:FindFirstChild("DamageBox") or plr.Character:FindFirstChild("RightHand")
-            if db and db:IsA("BasePart") then
-                db.CFrame = hrp.CFrame * CFrame.new(0, 0, -2)
-            end
+
+    -- wenn Punch nicht im Character ist -> equippen
+    if not char:FindFirstChild("Punch") then
+        local punchTool = backpack:FindFirstChild("Punch")
+        if punchTool and punchTool:IsA("Tool") then
+            humanoid:EquipTool(punchTool)
         end
     end
+end)
+
+-- nach Respawn erneut char/humanoid setzen
+player.CharacterAdded:Connect(function(newChar)
+    char = newChar
+    humanoid = char:WaitForChild("Humanoid")
 end)
 
 
