@@ -12,68 +12,17 @@ local Window = library:AddWindow("Muki's private", {
     toggle_key = Enum.KeyCode.RightShift,
     can_resize = true,
 })
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local VIM = game:GetService("VirtualInputManager")
-
-local player = Players.LocalPlayer
-
--- Switch: immer an
+local killTab = Window:AddTab("Auto Kill")
+--autokill logik
 local autoKillEnabled = true
-local switchWidget = killTab:AddSwitch("Auto Kill", function(state)
-    if state ~= true then
-        autoKillEnabled = true
-        if switchWidget and switchWidget.Set then
-            pcall(function() switchWidget:Set(true) end)
-        end
-    end
+killTab:AddSwitch("Auto Kill", function(state)
+    autoKillEnabled = state
 end)
-if switchWidget and switchWidget.Set then
-    pcall(function() switchWidget:Set(true) end)
-end
-
--- Slot-1 equippen + benutzen (per Key-Event), dann Tool aktivieren
-local function equipAndUseSlot1()
-    -- 1 drücken (equip Slot 1)
-    pcall(function()
-        VIM:SendKeyEvent(true, Enum.KeyCode.One, false, game)
-        VIM:SendKeyEvent(false, Enum.KeyCode.One, false, game)
-    end)
-
-    task.wait(0.05) -- minikleiner Delay, damit Roblox equippt
-
-    -- aktuelles Tool (im Character) aktivieren
-    local char = player.Character
-    if char then
-        local equipped = char:FindFirstChildWhichIsA("Tool")
-        if equipped then
-            pcall(function() equipped:Activate() end)
-        end
-    end
-end
-
--- Throttle, damit wir nicht jeden Frame 1 spammen
-local lastEquip = 0
-local function maybeEquipAndUse()
-    local now = os.clock()
-    if (now - lastEquip) > 0.4 then -- alle ~0,4s reicht
-        lastEquip = now
-        equipAndUseSlot1()
-    end
-end
-
--- Auto-Kill Loop
 RunService.RenderStepped:Connect(function()
     if not autoKillEnabled then return end
-
-    -- Equip & use Slot 1 regelmäßig
-    maybeEquipAndUse()
-
-    -- Dein AutoKill-Teil
     local character = player.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return end
     local hrp = character.HumanoidRootPart
-
     for _, plr in pairs(Players:GetPlayers()) do
         if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
             local db = plr.Character:FindFirstChild("DamageBox") or plr.Character:FindFirstChild("RightHand")
@@ -83,7 +32,6 @@ RunService.RenderStepped:Connect(function()
         end
     end
 end)
-
 ---------------------------------------------------------------------
 -- Services & Basics
 ---------------------------------------------------------------------
