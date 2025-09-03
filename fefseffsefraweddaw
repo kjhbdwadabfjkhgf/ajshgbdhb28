@@ -13,78 +13,13 @@ local Window = library:AddWindow("Muki's private", {
     can_resize = true,
 })
 local killTab = Window:AddTab("Auto Kill")
---ka logik
--- Services
-local Players     = game:GetService("Players")
-local RunService  = game:GetService("RunService")
-
-local player   = Players.LocalPlayer
-local char     = player.Character or player.CharacterAdded:Wait()
-local humanoid = char:WaitForChild("Humanoid")
-local backpack = player:WaitForChild("Backpack")
-
--- Punch einmal sauber equippen (dein Snippet 1:1)
-local punchTool = backpack:WaitForChild("Punch")
-humanoid:EquipTool(punchTool)
-
--- Nach Respawn erneut setzen
-player.CharacterAdded:Connect(function(newChar)
-    char = newChar
-    humanoid = char:WaitForChild("Humanoid")
-    backpack = player:WaitForChild("Backpack")
-    task.wait(0.3)
-    local t = backpack:FindFirstChild("Punch")
-    if t and t:IsA("Tool") then
-        pcall(function() humanoid:EquipTool(t) end)
-    end
-end)
-
--- Switch: Auto Use (standardmäßig AN)
-local autoUseEnabled = true
-local switchWidget = killTab:AddSwitch("Auto Use Punch", function(state)
-    autoUseEnabled = state
-end)
-pcall(function()
-    if switchWidget and switchWidget.Set then
-        switchWidget:Set(true) -- visuell auf AN
-    end
-end)
-
--- Tool-Use-Loop: ruft .Activate() auf dem aktuell ausgerüsteten Punch auf
-local USE_INTERVAL = 0.12  -- dein Tool-Script throttlet zusätzlich über attackTime_upvr/tick()
-local lastUse = 0
-
-RunService.RenderStepped:Connect(function()
-    if not autoUseEnabled then return end
-    if not char then return end
-
-    -- Sicherstellen, dass Punch ausgerüstet ist
-    local equipped = char:FindFirstChildWhichIsA("Tool")
-    if not equipped or equipped.Name ~= "Punch" then
-        local t = backpack:FindFirstChild("Punch")
-        if t and t:IsA("Tool") then
-            pcall(function() humanoid:EquipTool(t) end)
-        end
-        equipped = char:FindFirstChildWhichIsA("Tool")
-        if not equipped or equipped.Name ~= "Punch" then return end
-    end
-
-    -- Aktivieren -> triggert Parent.Activated in deinem Tool-Script
-    local now = os.clock()
-    if now - lastUse >= USE_INTERVAL then
-        lastUse = now
-        pcall(function() equipped:Activate() end)
-    end
-end)
-
-
---farm
-local test = true
+--autokill logik
+local autoKillEnabled = true
 killTab:AddSwitch("Auto Kill", function(state)
-    test = state
+    autoKillEnabled = state
 end)
 RunService.RenderStepped:Connect(function()
-    if not test then return end
+    if not autoKillEnabled then return end
     local character = player.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return end
     local hrp = character.HumanoidRootPart
@@ -97,37 +32,27 @@ RunService.RenderStepped:Connect(function()
         end
     end
 end)
-
-
---autokill logik
-local player = game.Players.LocalPlayer
-local char = player.Character or player.CharacterAdded:Wait()
-local humanoid = char:WaitForChild("Humanoid")
-local backpack = player:WaitForChild("Backpack")
-
--- UI-Switch
-local autoKillEnabled = true
-killTab:AddSwitch("Auto Equip Punch", function(state)
-    autoKillEnabled = state
-    if autoKillEnabled then
-        -- dein Equip-Snippet 1:1 ausgeführt
-        local punchTool = backpack:WaitForChild("Punch")
-        humanoid:EquipTool(punchTool)
+---------------------------------------------------------------------
+-- Auto-Reexecute nach Teleport: URL zu DEINEM Script eintragen
+---------------------------------------------------------------------
+local RELOAD_URL = "https://raw.githubusercontent.com/DEIN/REPO/main/dein_script.lua"
+local function queueReexec()
+    local q = (syn and syn.queue_on_teleport)
+          or (queue_on_teleport)
+          or (fluxus and fluxus.queue_on_teleport)
+          or (KRNL_LOADED and queue_on_teleport) -- manche executors setzen global
+    if q then
+        q(([[
+            -- auto re-exec bootstrap
+            local ok,err = pcall(function()
+                loadstring(game:HttpGet("%s"))()
+            end)
+            if not ok then warn("[Reexec] Load failed:", err) end
+        ]]):format(RELOAD_URL))
     end
-end)
+end
 
--- falls du nach Respawn auch wieder equippen willst
-player.CharacterAdded:Connect(function(newChar)
-    char = newChar
-    humanoid = char:WaitForChild("Humanoid")
-    backpack = player:WaitForChild("Backpack")
-    if autoKillEnabled then
-        local punchTool = backpack:WaitForChild("Punch")
-        humanoid:EquipTool(punchTool)
-    end
-end)
-
-------------------------------------------------------------------------------------------------------------------------
+---------------------------------------------------------------------
 -- Services & Basics
 ---------------------------------------------------------------------
 local Players = game:GetService("Players")
@@ -169,7 +94,6 @@ if switchWidget then
         setSwitch = function(v) switchWidget:SetValue(v) end
     end
 end
--- Sicherheitsnetz: alle 2s TRUE (falls Lib intern cached)
 task.spawn(function()
     while task.wait(2) do
         AUTO_HOP_ENABLED = true
@@ -247,32 +171,37 @@ local function getBestServerUnderCap()
         end
 
         cursor = payload.nextPageCursor
-        pages = pages + 1 -- (Lua hat kein +=)
+        pages = pages + 1
     until not cursor or pages >= MAX_PAGES or best
 
     return best
 end
 
 ---------------------------------------------------------------------
--- Hop-Funktion
+-- Hop-Funktion (mit Auto-Reexecute Queue)
 ---------------------------------------------------------------------
 local function hop(reason)
     if hopping then return end
-    if not AUTO_HOP_ENABLED then return end -- bleibt praktisch immer true
+    if not AUTO_HOP_ENABLED then return end
     hopping = true
 
     local target = getBestServerUnderCap()
     if not target then
         warn(("[ServerHopper] Kein passender Server (%s). Fallback Teleport."):format(tostring(reason)))
+        -- Bootstrap auch beim Fallback
+        pcall(function() TeleportService:SetTeleportSetting("ServerHopperReason", reason) end)
+        queueReexec()
         TeleportService:Teleport(PLACE_ID, LOCAL_PLAYER)
         return
     end
 
     recentJobIds[target.id] = true
-    print(("[ServerHopper] HOP (%s) -> %s (%d/%d)")
-        :format(reason, target.id, target.playing, target.cap))
+    print(("[ServerHopper] HOP (%s) -> %s (%d/%d)"):format(reason, target.id, target.playing, target.cap))
 
+    -- Grund mitgeben (optional) + Reexec in die Queue legen
     pcall(function() TeleportService:SetTeleportSetting("ServerHopperReason", reason) end)
+    queueReexec()
+
     TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, LOCAL_PLAYER)
 end
 
