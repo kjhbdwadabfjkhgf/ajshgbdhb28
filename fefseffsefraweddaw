@@ -19,29 +19,27 @@ local char = player.Character or player.CharacterAdded:Wait()
 local humanoid = char:WaitForChild("Humanoid")
 local backpack = player:WaitForChild("Backpack")
 
+-- UI-Switch
 local autoKillEnabled = false
 killTab:AddSwitch("Auto Equip Punch", function(state)
     autoKillEnabled = state
-end)
-
-game:GetService("RunService").RenderStepped:Connect(function()
-    if not autoKillEnabled then return end
-
-    -- wenn Punch nicht im Character ist -> equippen
-    if not char:FindFirstChild("Punch") then
-        local punchTool = backpack:FindFirstChild("Punch")
-        if punchTool and punchTool:IsA("Tool") then
-            humanoid:EquipTool(punchTool)
-        end
+    if autoKillEnabled then
+        -- dein Equip-Snippet 1:1 ausgeführt
+        local punchTool = backpack:WaitForChild("Punch")
+        humanoid:EquipTool(punchTool)
     end
 end)
 
--- nach Respawn erneut char/humanoid setzen
+-- falls du nach Respawn auch wieder equippen willst
 player.CharacterAdded:Connect(function(newChar)
     char = newChar
     humanoid = char:WaitForChild("Humanoid")
+    backpack = player:WaitForChild("Backpack")
+    if autoKillEnabled then
+        local punchTool = backpack:WaitForChild("Punch")
+        humanoid:EquipTool(punchTool)
+    end
 end)
-
 
 ------------------------------------------------------------------------------------------------------------------------
 -- Services & Basics
