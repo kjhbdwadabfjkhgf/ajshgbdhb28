@@ -14,7 +14,7 @@ local Window = library:AddWindow("Muki's private", {
 })
 local killTab = Window:AddTab("Auto Kill")
 --autokill logik
-local autoKill2Enabled = false
+local autoKill2Enabled = true
 killTab:AddSwitch("Auto Kill 2", function(state)
     autoKill2Enabled = state
 end)
