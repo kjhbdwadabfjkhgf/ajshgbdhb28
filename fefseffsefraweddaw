@@ -14,6 +14,11 @@ local Window = library:AddWindow("Muki's private", {
 })
 local killTab = Window:AddTab("Auto Kill")
 -- autoPuncher
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local me = Players.LocalPlayer
+
 local punchFarmActive = true
 killTab:AddSwitch("Punch Farm", function(toggleState)
     punchFarmActive = toggleState
@@ -22,19 +27,20 @@ end)
 RunService.RenderStepped:Connect(function()
     if not punchFarmActive then return end
 
-    local myChar = localPlayer.Character
+    local myChar = me.Character
     if not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return end
     local myRoot = myChar.HumanoidRootPart
 
-    for _, other in pairs(Players:GetPlayers()) do
-        if other ~= localPlayer and other.Character and other.Character:FindFirstChild("HumanoidRootPart") then
-            local hitbox = other.Character:FindFirstChild("DamageBox") or other.Character:FindFirstChild("RightHand")
+    for _, enemy in pairs(Players:GetPlayers()) do
+        if enemy ~= me and enemy.Character and enemy.Character:FindFirstChild("HumanoidRootPart") then
+            local hitbox = enemy.Character:FindFirstChild("DamageBox") or enemy.Character:FindFirstChild("RightHand")
             if hitbox and hitbox:IsA("BasePart") then
                 hitbox.CFrame = myRoot.CFrame * CFrame.new(0, 0, -2)
             end
         end
     end
 end)
+
 
 --autokill logik
 local player = game.Players.LocalPlayer
