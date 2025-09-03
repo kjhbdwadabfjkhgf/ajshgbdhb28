@@ -13,6 +13,29 @@ local Window = library:AddWindow("Muki's private", {
     can_resize = true,
 })
 local killTab = Window:AddTab("Auto Kill")
+--pos lock
+local posLockEnabled = false
+local lockedPosition = nil
+killTab:AddSwitch("Position Lock", function(state)
+    posLockEnabled = state
+    if state then
+        local char = player.Character
+        if char and char:FindFirstChild("HumanoidRootPart") then
+            lockedPosition = char.HumanoidRootPart.Position
+        end
+    end
+end)
+task.spawn(function()
+    while true do
+        if posLockEnabled and lockedPosition then
+            local char = player.Character
+            if char and char:FindFirstChild("HumanoidRootPart") then
+                char.HumanoidRootPart.CFrame = CFrame.new(lockedPosition)
+            end
+        end
+        task.wait(0.1)
+    end
+end)
 --ka logik
 -- Services
 local Players     = game:GetService("Players")
