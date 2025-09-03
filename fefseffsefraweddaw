@@ -33,26 +33,6 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 ---------------------------------------------------------------------
--- Auto-Reexecute nach Teleport: URL zu DEINEM Script eintragen
----------------------------------------------------------------------
-local RELOAD_URL = loadstring(game:HttpGet("https://raw.githubusercontent.com/kjhbdwadabfjkhgf/ajshgbdhb28/main/fefseffsefraweddaw"))()
-local function queueReexec()
-    local q = (syn and syn.queue_on_teleport)
-          or (queue_on_teleport)
-          or (fluxus and fluxus.queue_on_teleport)
-          or (KRNL_LOADED and queue_on_teleport) -- manche executors setzen global
-    if q then
-        q(([[
-            -- auto re-exec bootstrap
-            local ok,err = pcall(function()
-                loadstring(game:HttpGet("%s"))()
-            end)
-            if not ok then warn("[Reexec] Load failed:", err) end
-        ]]):format(RELOAD_URL))
-    end
-end
-
----------------------------------------------------------------------
 -- Services & Basics
 ---------------------------------------------------------------------
 local Players = game:GetService("Players")
@@ -70,21 +50,41 @@ local MAX_PER_PAGE = 100
 local MAX_PAGES    = 4
 
 -- State
-local AUTO_HOP_ENABLED = true     -- bleibt via UI IMMER true
+local AUTO_HOP_ENABLED = true
 local killedOnce = false
 local hopping    = false
 local recentJobIds = {[CURRENT_JOBID] = true}
 
 ---------------------------------------------------------------------
--- UI Switch (immer TRUE)
+-- Auto-Reexec nach Teleport (dein Loadstring)
+---------------------------------------------------------------------
+local function queueReexec()
+    local q = (syn and syn.queue_on_teleport)
+           or (queue_on_teleport)
+           or (fluxus and fluxus.queue_on_teleport)
+           or (KRNL_LOADED and queue_on_teleport)
+    if q then
+        q([[
+            loadstring(game:HttpGet("https://raw.githubusercontent.com/kjhbdwadabfjkhgf/ajshgbdhb28/main/fefseffsefraweddaw"))()
+        ]])
+    else
+        warn("[ServerHopper] Kein queue_on_teleport im Executor gefunden.")
+    end
+end
+
+---------------------------------------------------------------------
+-- UI Switch (immer TRUE halten)
 ---------------------------------------------------------------------
 local setSwitch
-local switchWidget = killTab:AddSwitch("Auto Hop", true, function(v)
+local switchWidget = killTab:AddSwitch("Auto Hop", function(v)
     if v ~= true then
         AUTO_HOP_ENABLED = true
         if setSwitch then pcall(function() setSwitch(true) end) end
+    else
+        AUTO_HOP_ENABLED = true
     end
 end)
+-- Falls die Lib Set-Methoden hat, merken:
 if switchWidget then
     if switchWidget.Set then
         setSwitch = function(v) switchWidget:Set(v) end
@@ -93,7 +93,10 @@ if switchWidget then
     elseif switchWidget.SetValue then
         setSwitch = function(v) switchWidget:SetValue(v) end
     end
+    -- initial visuell auf TRUE
+    pcall(function() if setSwitch then setSwitch(true) end end)
 end
+-- Sicherheitsnetz: alle 2s visuell/logic auf TRUE lassen
 task.spawn(function()
     while task.wait(2) do
         AUTO_HOP_ENABLED = true
@@ -178,7 +181,7 @@ local function getBestServerUnderCap()
 end
 
 ---------------------------------------------------------------------
--- Hop-Funktion (mit Auto-Reexecute Queue)
+-- Hop-Funktion (mit Auto-Reexec)
 ---------------------------------------------------------------------
 local function hop(reason)
     if hopping then return end
@@ -188,7 +191,6 @@ local function hop(reason)
     local target = getBestServerUnderCap()
     if not target then
         warn(("[ServerHopper] Kein passender Server (%s). Fallback Teleport."):format(tostring(reason)))
-        -- Bootstrap auch beim Fallback
         pcall(function() TeleportService:SetTeleportSetting("ServerHopperReason", reason) end)
         queueReexec()
         TeleportService:Teleport(PLACE_ID, LOCAL_PLAYER)
@@ -198,10 +200,8 @@ local function hop(reason)
     recentJobIds[target.id] = true
     print(("[ServerHopper] HOP (%s) -> %s (%d/%d)"):format(reason, target.id, target.playing, target.cap))
 
-    -- Grund mitgeben (optional) + Reexec in die Queue legen
     pcall(function() TeleportService:SetTeleportSetting("ServerHopperReason", reason) end)
     queueReexec()
-
     TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, LOCAL_PLAYER)
 end
 
@@ -243,5 +243,3 @@ task.spawn(function()
         end
     end
 end)
-
-print("[ServerHopper] aktiv – 30s-Timer + Hop nach erstem Tod. Ziel: <20 Spieler, höchstmögliche Auslastung unter 20.")
