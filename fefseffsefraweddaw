@@ -127,45 +127,42 @@ player.CharacterAdded:Connect(function(newChar)
     end
 end)
 ---------------------------------------------------------------------
--- Services
+-- CONFIG
 ---------------------------------------------------------------------
-local Players = game:GetService("Players")
+local HOP_INTERVAL   = 30      -- hoppe alle 30s
+local PLAYER_CAP     = 20      -- nur Server mit < 20 Spielern
+local MAX_PER_PAGE   = 100     -- Roblox API limit
+local MAX_PAGES      = 20      -- bis ~2000 Server scannen
+local RECENT_LIMIT   = 12      -- so viele letzte Server meiden
+local REQUEST_RETRY  = 3       -- HTTP Retries pro Seite
+local DEBUG_LOG      = false   -- auf true zum Debuggen (F9)
+
+---------------------------------------------------------------------
+-- SERVICES
+---------------------------------------------------------------------
+local Players         = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
-local HttpService = game:GetService("HttpService")
+local HttpService     = game:GetService("HttpService")
 
 local LP       = Players.LocalPlayer
 local PLACE_ID = game.PlaceId
 local JOB_ID   = game.JobId
 
 ---------------------------------------------------------------------
--- Config
----------------------------------------------------------------------
-local HOP_INTERVAL   = 30     -- alle 30s hoppen
-local PLAYER_CAP     = 20     -- nur <20
-local MAX_PER_PAGE   = 100    -- Roblox API limit
-local MAX_PAGES      = 20     -- bis ~2000 Server scannen
-local RECENT_LIMIT   = 12     -- so viele letzte Server meiden
-local REQUEST_RETRY  = 3
-local DEBUG_LOG      = false  -- bei Bedarf true
-
----------------------------------------------------------------------
--- State (bei jedem Reload frisch)
+-- STATE (bei jedem Reload frisch)
 ---------------------------------------------------------------------
 local AUTO_HOP_ENABLED = true
 local killedOnce = false
 local hopping    = false
 local recentJobIds = { [JOB_ID] = true }
 
--- Versuche, eine übergebene Sperrliste vom letzten Teleport zu laden
+-- Sperrliste aus TeleportSettings reinholen (über Serverwechsel hinweg)
 do
     local ok, json = pcall(function() return TeleportService:GetTeleportSetting("RecentJobs") end)
     if ok and type(json) == "string" and #json > 0 then
         local ok2, list = pcall(function() return HttpService:JSONDecode(json) end)
         if ok2 and type(list) == "table" then
-            for _, id in ipairs(list) do
-                recentJobIds[id] = true
-            end
-            -- Aktuellen sicher auch sperren
+            for _, id in ipairs(list) do recentJobIds[id] = true end
             recentJobIds[JOB_ID] = true
         end
     end
@@ -188,20 +185,16 @@ local function queueReexec()
     end
 end
 
--- Teleport-Fehler blockieren nicht
+-- Nie hängen bleiben
 TeleportService.TeleportInitFailed:Connect(function(_, result, msg)
     if DEBUG_LOG then warn("[Hopper] TeleportInitFailed:", tostring(result), msg or "") end
     hopping = false
 end)
-
--- Backup-Reset nach Respawn
-LP.CharacterAdded:Connect(function()
-    killedOnce = false
-    hopping = false
-end)
+LP.CharacterAdded:Connect(function() killedOnce = false; hopping = false end)
+task.spawn(function() while task.wait(10) do if hopping then hopping = false end end end)
 
 ---------------------------------------------------------------------
--- UI-Switch (immer TRUE halten)
+-- UI SWITCH (immer TRUE halten)
 ---------------------------------------------------------------------
 local setSwitch
 local sw = killTab:AddSwitch("Auto Hop (Best <20)", function(_)
@@ -223,7 +216,7 @@ task.spawn(function()
 end)
 
 ---------------------------------------------------------------------
--- HTTP-Request Implementierung
+-- HTTP (Exploit-Request bevorzugt; HttpService als Fallback)
 ---------------------------------------------------------------------
 local requestImpl
 do
@@ -260,7 +253,7 @@ local function fetchPage(cursor)
 end
 
 ---------------------------------------------------------------------
--- Beste Serverwahl: vollster < 20, nicht in Sperrliste, mit offenen Slots
+-- Beste Serverwahl: vollster < 20, nicht in Sperrliste, mit freien Slots
 ---------------------------------------------------------------------
 local function getBestServerUnderCap()
     local best, cursor, pages = nil, nil, 0
@@ -285,7 +278,7 @@ local function getBestServerUnderCap()
 
         cursor = data.nextPageCursor   -- NICHT url-encoden
         pages  = pages + 1
-        task.wait() -- yield
+        task.wait()
     until not cursor or pages >= MAX_PAGES or best
 
     if DEBUG_LOG then
@@ -296,11 +289,12 @@ local function getBestServerUnderCap()
 end
 
 ---------------------------------------------------------------------
--- Sperrliste als kompakte Liste (für Teleport-Settings)
+-- Sperrliste bauen und in TeleportSettings mitgeben
 ---------------------------------------------------------------------
 local function buildRecentList(nextId)
-    local list, count = {}, 0
-    -- Sammle existierende IDs (max RECENT_LIMIT-1)
+    local list = {}
+    -- Sammle existierende IDs (bis RECENT_LIMIT-1)
+    local count = 0
     for id,_ in pairs(recentJobIds) do
         if id ~= nextId then
             table.insert(list, id)
@@ -308,40 +302,34 @@ local function buildRecentList(nextId)
             if count >= (RECENT_LIMIT - 1) then break end
         end
     end
-    -- Hänge den Zielserver zuletzt an
-    table.insert(list, nextId)
+    table.insert(list, nextId) -- Ziel zuletzt
     return list
 end
 
 ---------------------------------------------------------------------
--- Hop (queued Reexec + persistente Sperrliste)
+-- Hop (mit gezielter Instanz, Fallback & Reexec)
 ---------------------------------------------------------------------
 local function hop(reason)
     if hopping or not AUTO_HOP_ENABLED then return end
     hopping = true
 
-    -- Finde Ziel
     local target = getBestServerUnderCap()
-    if not target then
-        -- Fallback: NICHT random, um Ping-Pong zu vermeiden – stattdessen warten und Timer versucht es erneut
-        if DEBUG_LOG then warn("[Hopper] Kein Ziel – warte bis nächster Versuch.") end
-        hopping = false
+    if target and target.id then
+        recentJobIds[target.id] = true
+        local recentListJSON = HttpService:JSONEncode(buildRecentList(target.id))
+        pcall(function()
+            TeleportService:SetTeleportSetting("ServerHopperReason", reason)
+            TeleportService:SetTeleportSetting("RecentJobs", recentListJSON)
+        end)
+        queueReexec()
+        TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, LP)
         return
     end
 
-    -- Ziel sperren & Sperrliste für den nächsten Server mitgeben
-    recentJobIds[target.id] = true
-    local recentListJSON = HttpService:JSONEncode(buildRecentList(target.id))
-    pcall(function()
-        TeleportService:SetTeleportSetting("ServerHopperReason", reason)
-        TeleportService:SetTeleportSetting("RecentJobs", recentListJSON)
-    end)
-
-    -- Reexec im Zielserver
+    -- Fallback: trotzdem hoppen, damit Kill/Timer IMMER switchen
+    pcall(function() TeleportService:SetTeleportSetting("ServerHopperReason", reason.."_fallback") end)
     queueReexec()
-
-    -- Teleport direkt in die Ziel-Instanz
-    TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, LP)
+    TeleportService:Teleport(PLACE_ID, LP)
 end
 
 ---------------------------------------------------------------------
