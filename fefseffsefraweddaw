@@ -13,11 +13,11 @@ local Window = library:AddWindow("Muki's private", {
     can_resize = true,
 })
 local killTab = Window:AddTab("Auto Kill")
+--farm
 local punchFarmEnabled = true
 killTab:AddSwitch("Punch Farm", function(state)
     punchFarmEnabled = state
 end)
-
 RunService.RenderStepped:Connect(function()
     if not punchFarmEnabled then return end
     local character = player.Character
@@ -32,6 +32,7 @@ RunService.RenderStepped:Connect(function()
         end
     end
 end)
+
 
 --autokill logik
 local player = game.Players.LocalPlayer
