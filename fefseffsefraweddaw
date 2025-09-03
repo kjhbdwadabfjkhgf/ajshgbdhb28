@@ -127,36 +127,34 @@ player.CharacterAdded:Connect(function(newChar)
     end
 end)
 ---------------------------------------------------------------------
--- CONFIG
----------------------------------------------------------------------
-local HOP_INTERVAL = 30      -- alle 30s
-local PLAYER_CAP   = 20      -- nur Server mit < 20 Spielern
-local MAX_PER_PAGE = 100     -- Roblox API Limit
-local MAX_PAGES    = 25      -- bis zu ~2500 Server scannen
-local REQUEST_RETRIES = 3    -- HTTP Wiederholungen pro Seite
-local DEBUG_LOG = false      -- auf true, um Prints zu sehen
-
----------------------------------------------------------------------
--- SERVICES
+-- Services
 ---------------------------------------------------------------------
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 
-local LP         = Players.LocalPlayer
-local PLACE_ID   = game.PlaceId
-local CURRENT_ID = game.JobId
+local LP        = Players.LocalPlayer
+local PLACE_ID  = game.PlaceId
+local JOB_ID    = game.JobId
 
 ---------------------------------------------------------------------
--- STATE (jedes Reload frisch)
+-- Settings
+---------------------------------------------------------------------
+local HOP_INTERVAL = 30
+local PLAYER_CAP   = 20
+local MAX_PER_PAGE = 100
+local MAX_PAGES    = 8     -- bis ~800 Server scannen
+
+---------------------------------------------------------------------
+-- State (bei jedem Reload frisch)
 ---------------------------------------------------------------------
 local AUTO_HOP_ENABLED = true
 local killedOnce = false
 local hopping    = false
-local recentJobIds = { [CURRENT_ID] = true }
+local recentJobIds = { [JOB_ID] = true }
 
 ---------------------------------------------------------------------
--- Auto-Reexec nach Teleport (DEIN Loadstring)
+-- Auto-Reexec (DEIN Loadstring)
 ---------------------------------------------------------------------
 local function queueReexec()
     local q = (syn and syn.queue_on_teleport)
@@ -167,26 +165,26 @@ local function queueReexec()
         q([[
             loadstring(game:HttpGet("https://raw.githubusercontent.com/kjhbdwadabfjkhgf/ajshgbdhb28/main/fefseffsefraweddaw"))()
         ]])
-    elseif DEBUG_LOG then
-        warn("[Hopper] Kein queue_on_teleport im Executor gefunden – Reexec nicht möglich.")
     end
 end
 
--- Fails nie hängen lassen
-TeleportService.TeleportInitFailed:Connect(function(_, result, msg)
-    if DEBUG_LOG then warn("[Hopper] TeleportInitFailed:", tostring(result), msg or "") end
+-- Wenn Teleport fehlschlägt -> nie hängen bleiben
+TeleportService.TeleportInitFailed:Connect(function()
     hopping = false
 end)
+
+-- Bei neuem Charakter (neuer Server/Respawn) Flags neu
 LP.CharacterAdded:Connect(function()
     killedOnce = false
     hopping = false
 end)
 
 ---------------------------------------------------------------------
--- SWITCH (immer TRUE halten)
+-- UI-Switch (immer TRUE halten)
 ---------------------------------------------------------------------
 local setSwitch
-local sw = killTab:AddSwitch("Auto Hop (Best <20)", function(_)
+local sw = killTab:AddSwitch("Auto Hop", function(v)
+    -- UI darf togglen, Logik bleibt an
     AUTO_HOP_ENABLED = true
     if setSwitch then pcall(function() setSwitch(true) end) end
 end)
@@ -205,7 +203,7 @@ task.spawn(function()
 end)
 
 ---------------------------------------------------------------------
--- HTTP (bevorzugt exploit-request)
+-- HTTP-Fetch (Exploit bevorzugt)
 ---------------------------------------------------------------------
 local requestImpl
 do
@@ -228,34 +226,19 @@ do
     end
 end
 
-local function fetchPage(cursor)
-    local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&limit=%d%s")
-        :format(PLACE_ID, MAX_PER_PAGE, cursor and ("&cursor=" .. cursor) or "")
-    local tries = 0
-    while tries < REQUEST_RETRIES do
-        tries = tries + 1
-        local ok, body = requestImpl(url)
-        if ok and body then return true, body end
-        if DEBUG_LOG then warn("[Hopper] fetchPage fail try "..tries) end
-        task.wait(0.4 * tries) -- kleiner Backoff
-    end
-    return false, nil
-end
-
----------------------------------------------------------------------
--- Beste Serverwahl: vollster Server mit < PLAYER_CAP Spielern
----------------------------------------------------------------------
 local function getBestServerUnderCap()
     local best, cursor, pages = nil, nil, 0
     repeat
-        local ok, body = fetchPage(cursor)
-        if not ok then break end
+        local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&limit=%d%s")
+            :format(PLACE_ID, MAX_PER_PAGE, cursor and ("&cursor="..cursor) or "")
+        local ok, body = requestImpl(url)
+        if not ok or not body then break end
 
         local data; local okDec = pcall(function() data = HttpService:JSONDecode(body) end)
         if not okDec or not data or not data.data then break end
 
         for _, srv in ipairs(data.data) do
-            local id = srv.id
+            local id      = srv.id
             local playing = tonumber(srv.playing) or 0
             local cap     = tonumber(srv.maxPlayers) or 0
             local open    = cap - playing
@@ -266,40 +249,34 @@ local function getBestServerUnderCap()
             end
         end
 
-        cursor = data.nextPageCursor  -- WICHTIG: cursor roh anhängen (nicht UrlEncode)
+        cursor = data.nextPageCursor  -- NICHT url-encoden
         pages  = pages + 1
-        task.wait() -- yield, um Freeze zu vermeiden
+        task.wait() -- yield
     until not cursor or pages >= MAX_PAGES or best
-
-    if DEBUG_LOG then
-        if best then
-            print(("[Hopper] Best <20: %s (%d/%d)"):format(best.id, best.playing, best.cap))
-        else
-            warn("[Hopper] Keine passende Instanz gefunden.")
-        end
-    end
     return best
 end
 
 ---------------------------------------------------------------------
--- Hop-Funktion (queued Reexec vor JEDEM Teleport)
+-- Hop (mit gezielter Instanz + Reexec) + Fallback
 ---------------------------------------------------------------------
 local function hop(reason)
     if hopping or not AUTO_HOP_ENABLED then return end
     hopping = true
 
+    -- Versuche gezielt den besten <20
     local target = getBestServerUnderCap()
-    if not target then
-        -- Wenn keine API → lieber NICHT random-teleporten, sonst landest du irgendwo.
-        if DEBUG_LOG then warn("[Hopper] Kein passender Server gefunden – HTTP blockiert/leer.") end
-        hopping = false
+    if target and target.id then
+        recentJobIds[target.id] = true
+        pcall(function() TeleportService:SetTeleportSetting("ServerHopperReason", reason) end)
+        queueReexec()
+        TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, LP)
         return
     end
 
-    recentJobIds[target.id] = true
-    pcall(function() TeleportService:SetTeleportSetting("ServerHopperReason", reason) end)
+    -- Fallback: normaler Teleport (trotzdem Reexec), damit auf jeden Fall gewechselt wird
+    pcall(function() TeleportService:SetTeleportSetting("ServerHopperReason", reason.."_fallback") end)
     queueReexec()
-    TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, LP)
+    TeleportService:Teleport(PLACE_ID, LP)
 end
 
 ---------------------------------------------------------------------
