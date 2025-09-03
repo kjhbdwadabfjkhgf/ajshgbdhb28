@@ -13,6 +13,44 @@ local Window = library:AddWindow("Muki's private", {
     can_resize = true,
 })
 local killTab = Window:AddTab("Auto Kill")
+--ka logik
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+
+-- Switch: standardmäßig AN
+local autoUseEnabled = true
+local switchWidget = killTab:AddSwitch("Auto Use Tool", function(state)
+    autoUseEnabled = state
+end)
+-- Visuell auf AN setzen (falls die Lib das unterstützt)
+pcall(function()
+    if switchWidget and switchWidget.Set then
+        switchWidget:Set(true)
+    end
+end)
+
+-- Tool-Use-Loop (benutzt das gerade ausgerüstete Tool)
+local USE_INTERVAL = 0.12
+local lastUse = 0
+
+RunService.RenderStepped:Connect(function()
+    if not autoUseEnabled then return end
+
+    local char = player.Character
+    if not char then return end
+
+    local tool = char:FindFirstChildWhichIsA("Tool")
+    if not tool then return end
+
+    local now = os.clock()
+    if now - lastUse >= USE_INTERVAL then
+        lastUse = now
+        pcall(function() tool:Activate() end)
+    end
+end)
+
 --farm
 local test = true
 killTab:AddSwitch("Auto Kill", function(state)
