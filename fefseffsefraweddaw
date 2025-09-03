@@ -1,13 +1,139 @@
+-- == SERVICES UND GRUNDVARIABLEN ==
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/obeseinsect/roblox/main/Ui%20Libraries/Elerium.lua"))()
+-- == GUI-FENSTER ==
+local Window = library:AddWindow("Muki's private", {
+    main_color = Color3.fromRGB(100, 100, 255),
+    min_size = Vector2.new(400, 400),
+    toggle_key = Enum.KeyCode.RightShift,
+    can_resize = true,
+})
+local killTab = Window:AddTab("Auto Kill")
+--ka logik
+-- Services
+local Players     = game:GetService("Players")
+local RunService  = game:GetService("RunService")
+
+local player   = Players.LocalPlayer
+local char     = player.Character or player.CharacterAdded:Wait()
+local humanoid = char:WaitForChild("Humanoid")
+local backpack = player:WaitForChild("Backpack")
+
+-- Punch einmal sauber equippen (dein Snippet 1:1)
+local punchTool = backpack:WaitForChild("Punch")
+humanoid:EquipTool(punchTool)
+
+-- Nach Respawn erneut setzen
+player.CharacterAdded:Connect(function(newChar)
+    char = newChar
+    humanoid = char:WaitForChild("Humanoid")
+    backpack = player:WaitForChild("Backpack")
+    task.wait(0.3)
+    local t = backpack:FindFirstChild("Punch")
+    if t and t:IsA("Tool") then
+        pcall(function() humanoid:EquipTool(t) end)
+    end
+end)
+
+-- Switch: Auto Use (standardmäßig AN)
+local autoUseEnabled = true
+local switchWidget = killTab:AddSwitch("Auto Use Punch", function(state)
+    autoUseEnabled = state
+end)
+pcall(function()
+    if switchWidget and switchWidget.Set then
+        switchWidget:Set(true) -- visuell auf AN
+    end
+end)
+
+-- Tool-Use-Loop: ruft .Activate() auf dem aktuell ausgerüsteten Punch auf
+local USE_INTERVAL = 0.12  -- dein Tool-Script throttlet zusätzlich über attackTime_upvr/tick()
+local lastUse = 0
+
+RunService.RenderStepped:Connect(function()
+    if not autoUseEnabled then return end
+    if not char then return end
+
+    -- Sicherstellen, dass Punch ausgerüstet ist
+    local equipped = char:FindFirstChildWhichIsA("Tool")
+    if not equipped or equipped.Name ~= "Punch" then
+        local t = backpack:FindFirstChild("Punch")
+        if t and t:IsA("Tool") then
+            pcall(function() humanoid:EquipTool(t) end)
+        end
+        equipped = char:FindFirstChildWhichIsA("Tool")
+        if not equipped or equipped.Name ~= "Punch" then return end
+    end
+
+    -- Aktivieren -> triggert Parent.Activated in deinem Tool-Script
+    local now = os.clock()
+    if now - lastUse >= USE_INTERVAL then
+        lastUse = now
+        pcall(function() equipped:Activate() end)
+    end
+end)
+
+
+--farm
+local test = true
+killTab:AddSwitch("Auto Kill", function(state)
+    test = state
+end)
+RunService.RenderStepped:Connect(function()
+    if not test then return end
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = character.HumanoidRootPart
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local db = plr.Character:FindFirstChild("DamageBox") or plr.Character:FindFirstChild("RightHand")
+            if db and db:IsA("BasePart") then
+                db.CFrame = hrp.CFrame * CFrame.new(0, 0, -2)
+            end
+        end
+    end
+end)
+
+
+--autokill logik
+local player = game.Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local humanoid = char:WaitForChild("Humanoid")
+local backpack = player:WaitForChild("Backpack")
+
+-- UI-Switch
+local autoKillEnabled = true
+killTab:AddSwitch("Auto Equip Punch", function(state)
+    autoKillEnabled = state
+    if autoKillEnabled then
+        -- dein Equip-Snippet 1:1 ausgeführt
+        local punchTool = backpack:WaitForChild("Punch")
+        humanoid:EquipTool(punchTool)
+    end
+end)
+
+-- falls du nach Respawn auch wieder equippen willst
+player.CharacterAdded:Connect(function(newChar)
+    char = newChar
+    humanoid = char:WaitForChild("Humanoid")
+    backpack = player:WaitForChild("Backpack")
+    if autoKillEnabled then
+        local punchTool = backpack:WaitForChild("Punch")
+        humanoid:EquipTool(punchTool)
+    end
+end)
 ---------------------------------------------------------------------
--- CONFIG
+-- SETTINGS
 ---------------------------------------------------------------------
-local HOP_INTERVAL   = 30      -- alle 30s hoppen
-local PLAYER_CAP     = 20      -- nur Server mit < 20 Spielern
-local MAX_PER_PAGE   = 100     -- Roblox API Limit
-local MAX_PAGES      = 25      -- bis ~2500 Server scannen
-local RECENT_LIMIT   = 12      -- so viele letzte Server meiden
-local REQUEST_RETRY  = 3       -- HTTP-Retries pro Seite
-local DEBUG_LOG      = false
+local HOP_INTERVAL = 30         -- alle 30s
+local PLAYER_CAP   = 20         -- nur Server mit <20 Spielern
+local MAX_PER_PAGE = 100        -- Roblox API Limit
+local MAX_PAGES    = 20         -- bis ~2000 Server scannen
+local DEBUG_LOG    = false      -- bei Bedarf true
 
 ---------------------------------------------------------------------
 -- SERVICES
@@ -26,44 +152,33 @@ local JOB_ID   = game.JobId
 local AUTO_HOP_ENABLED = true
 local killedOnce = false
 local hopping    = false
-local recentJobIds = { [JOB_ID] = true }
-
--- Sperrliste vom letzten Hop reinholen (persistiert über Teleports):
-do
-    local ok, json = pcall(function() return TeleportService:GetTeleportSetting("RecentJobs") end)
-    if ok and type(json) == "string" and #json > 0 then
-        local ok2, list = pcall(function() return HttpService:JSONDecode(json) end)
-        if ok2 and type(list) == "table" then
-            for _, id in ipairs(list) do recentJobIds[id] = true end
-            recentJobIds[JOB_ID] = true
-        end
-    end
-end
+local seenJobs   = {[JOB_ID] = true}  -- meidet aktuellen Server
 
 ---------------------------------------------------------------------
--- Auto-Reexec nach Teleport (DEIN Loadstring)
+-- AUTO-REEXEC (DEIN LOADSTRING)
 ---------------------------------------------------------------------
 local function queueReexec()
     local q = (syn and syn.queue_on_teleport)
            or (queue_on_teleport)
            or (fluxus and fluxus.queue_on_teleport)
-           or (KRNL_LOADED and queue_on_teleport)
     if q then
         q([[
             loadstring(game:HttpGet("https://raw.githubusercontent.com/kjhbdwadabfjkhgf/ajshgbdhb28/main/fefseffsefraweddaw"))()
         ]])
     elseif DEBUG_LOG then
-        warn("[Hopper] queue_on_teleport nicht vorhanden – Reexec nicht möglich.")
+        warn("[Hopper] queue_on_teleport nicht verfügbar (Script startet im Zielserver nicht neu).")
     end
 end
 
--- Nie hängen bleiben
+-- niemals hängen bleiben
 TeleportService.TeleportInitFailed:Connect(function(_, result, msg)
     if DEBUG_LOG then warn("[Hopper] TeleportInitFailed:", tostring(result), msg or "") end
     hopping = false
 end)
-LP.CharacterAdded:Connect(function() killedOnce = false; hopping = false end)
-task.spawn(function() while task.wait(10) do if hopping then hopping = false end end end)
+LP.CharacterAdded:Connect(function()
+    killedOnce = false
+    hopping = false
+end)
 
 ---------------------------------------------------------------------
 -- SWITCH (immer TRUE halten)
@@ -104,6 +219,7 @@ do
             return false, "HTTP "..tostring(res and res.StatusCode or "ERR")
         end
     else
+        -- Achtung: In Live-Games ist GetAsync oft blockiert. Wenn es false liefert, gibt's unten einen Fallback.
         requestImpl = function(url)
             local ok, body = pcall(function() return HttpService:GetAsync(url, false) end)
             return ok, body
@@ -114,96 +230,73 @@ end
 local function fetchPage(cursor)
     local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&limit=%d%s")
         :format(PLACE_ID, MAX_PER_PAGE, cursor and ("&cursor=" .. cursor) or "")
-    local tries = 0
-    while tries < REQUEST_RETRY do
-        tries = tries + 1
-        local ok, body = requestImpl(url)
-        if ok and body then return true, body end
-        task.wait(0.25 * tries) -- Backoff
-    end
-    return false
+    local ok, body = requestImpl(url)
+    if not ok or not body then return nil end
+    local data; local okDec = pcall(function() data = HttpService:JSONDecode(body) end)
+    if not okDec or not data or not data.data then return nil end
+    return data
 end
 
 ---------------------------------------------------------------------
--- Beste Serverwahl: maximal „playing“ unter PLAYER_CAP, offene Slots, nicht in Sperrliste
+-- BESTER SERVER <20 (maximales 'playing', offene Slots, nicht aktueller/gesperrter)
 ---------------------------------------------------------------------
 local function getBestServerUnderCap()
     local best, cursor, pages = nil, nil, 0
     repeat
-        local ok, body = fetchPage(cursor)
-        if not ok then break end
-
-        local data; local okDec = pcall(function() data = HttpService:JSONDecode(body) end)
-        if not okDec or not data or not data.data then break end
+        local data = fetchPage(cursor)
+        if not data then break end
 
         for _, srv in ipairs(data.data) do
             local id      = srv.id
             local playing = tonumber(srv.playing) or 0
             local cap     = tonumber(srv.maxPlayers) or 0
             local open    = cap - playing
-            if id and playing < PLAYER_CAP and open > 0 and not recentJobIds[id] and id ~= JOB_ID then
+            if id and not seenJobs[id] and id ~= JOB_ID and open > 0 and playing < PLAYER_CAP then
                 if (not best) or (playing > best.playing) then
                     best = { id = id, playing = playing, cap = cap }
                 end
             end
         end
 
-        cursor = data.nextPageCursor   -- NICHT url-encoden
-        pages  = pages + 1             -- (kein += in Lua)
-        task.wait()                    -- yield
+        cursor = data.nextPageCursor          -- NICHT url-encoden
+        pages  = pages + 1                    -- (kein += in Lua)
+        task.wait()                           -- yield
     until not cursor or pages >= MAX_PAGES or best
 
     if DEBUG_LOG then
-        if best then print(("[Hopper] Best<%d: %s (%d/%d)"):format(PLAYER_CAP, best.id, best.playing, best.cap))
-        else warn("[Hopper] Keine passende Instanz gefunden.") end
+        if best then
+            print(("[Hopper] Best<%d -> %s (%d/%d)"):format(PLAYER_CAP, best.id, best.playing, best.cap))
+        else
+            warn("[Hopper] Keine passende Instanz gefunden.")
+        end
     end
     return best
 end
 
 ---------------------------------------------------------------------
--- Sperrliste bauen und in TeleportSettings mitschicken
----------------------------------------------------------------------
-local function buildRecentList(nextId)
-    local list, count = {}, 0
-    for id,_ in pairs(recentJobIds) do
-        if id ~= nextId then
-            table.insert(list, id)
-            count = count + 1
-            if count >= (RECENT_LIMIT - 1) then break end
-        end
-    end
-    table.insert(list, nextId)
-    return list
-end
-
----------------------------------------------------------------------
--- Hop (gezielte Instanz + Reexec; nur hoppen, wenn ein passender Server existiert)
+-- HOP (immer gezielt; wenn HTTP blockiert → einmaliger Fallback)
 ---------------------------------------------------------------------
 local function hop(reason)
     if hopping or not AUTO_HOP_ENABLED then return end
     hopping = true
 
     local target = getBestServerUnderCap()
-    if not target then
-        -- kein passender Server gefunden -> nicht random rejoinen (sonst falscher Server);
-        -- Timer versucht es wieder, oder Death-Hop beim nächsten Tod.
-        hopping = false
+    if target and target.id then
+        seenJobs[target.id] = true
+        pcall(function() TeleportService:SetTeleportSetting("ServerHopperReason", reason) end)
+        queueReexec()
+        TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, LP)
         return
     end
 
-    recentJobIds[target.id] = true
-    local recentListJSON = HttpService:JSONEncode(buildRecentList(target.id))
-    pcall(function()
-        TeleportService:SetTeleportSetting("ServerHopperReason", reason)
-        TeleportService:SetTeleportSetting("RecentJobs", recentListJSON)
-    end)
-
-    queueReexec() -- Script im Zielserver neu laden
-    TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, LP)
+    -- Fallback NUR wenn keine API greift – damit trotzdem ein Wechsel passiert
+    if DEBUG_LOG then warn("[Hopper] Fallback auf normalen Teleport (API leer/blockiert).") end
+    queueReexec()
+    TeleportService:Teleport(PLACE_ID, LP)
 end
 
 ---------------------------------------------------------------------
--- Death-Hop (beim ersten Tod)
+-- DEATH-HOP (beim ersten Tod)
 ---------------------------------------------------------------------
 local function bindDeathHop(character)
     local hum = character:FindFirstChildOfClass("Humanoid")
@@ -227,7 +320,7 @@ if LP.Character then bindDeathHop(LP.Character) end
 LP.CharacterAdded:Connect(bindDeathHop)
 
 ---------------------------------------------------------------------
--- 30s-Timer (endlos)
+-- 30s TIMER (endlos)
 ---------------------------------------------------------------------
 task.spawn(function()
     while true do
