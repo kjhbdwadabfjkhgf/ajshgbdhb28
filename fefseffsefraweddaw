@@ -14,42 +14,69 @@ local Window = library:AddWindow("Muki's private", {
 })
 local killTab = Window:AddTab("Auto Kill")
 --ka logik
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
+-- Services
+local Players     = game:GetService("Players")
+local RunService  = game:GetService("RunService")
 
-local player = Players.LocalPlayer
+local player   = Players.LocalPlayer
+local char     = player.Character or player.CharacterAdded:Wait()
+local humanoid = char:WaitForChild("Humanoid")
+local backpack = player:WaitForChild("Backpack")
 
--- Switch: standardmäßig AN
-local autoUseEnabled = true
-local switchWidget = killTab:AddSwitch("Auto Use Tool", function(state)
-    autoUseEnabled = state
-end)
--- Visuell auf AN setzen (falls die Lib das unterstützt)
-pcall(function()
-    if switchWidget and switchWidget.Set then
-        switchWidget:Set(true)
+-- Punch einmal sauber equippen (dein Snippet 1:1)
+local punchTool = backpack:WaitForChild("Punch")
+humanoid:EquipTool(punchTool)
+
+-- Nach Respawn erneut setzen
+player.CharacterAdded:Connect(function(newChar)
+    char = newChar
+    humanoid = char:WaitForChild("Humanoid")
+    backpack = player:WaitForChild("Backpack")
+    task.wait(0.3)
+    local t = backpack:FindFirstChild("Punch")
+    if t and t:IsA("Tool") then
+        pcall(function() humanoid:EquipTool(t) end)
     end
 end)
 
--- Tool-Use-Loop (benutzt das gerade ausgerüstete Tool)
-local USE_INTERVAL = 0.12
+-- Switch: Auto Use (standardmäßig AN)
+local autoUseEnabled = true
+local switchWidget = killTab:AddSwitch("Auto Use Punch", function(state)
+    autoUseEnabled = state
+end)
+pcall(function()
+    if switchWidget and switchWidget.Set then
+        switchWidget:Set(true) -- visuell auf AN
+    end
+end)
+
+-- Tool-Use-Loop: ruft .Activate() auf dem aktuell ausgerüsteten Punch auf
+local USE_INTERVAL = 0.12  -- dein Tool-Script throttlet zusätzlich über attackTime_upvr/tick()
 local lastUse = 0
 
 RunService.RenderStepped:Connect(function()
     if not autoUseEnabled then return end
-
-    local char = player.Character
     if not char then return end
 
-    local tool = char:FindFirstChildWhichIsA("Tool")
-    if not tool then return end
+    -- Sicherstellen, dass Punch ausgerüstet ist
+    local equipped = char:FindFirstChildWhichIsA("Tool")
+    if not equipped or equipped.Name ~= "Punch" then
+        local t = backpack:FindFirstChild("Punch")
+        if t and t:IsA("Tool") then
+            pcall(function() humanoid:EquipTool(t) end)
+        end
+        equipped = char:FindFirstChildWhichIsA("Tool")
+        if not equipped or equipped.Name ~= "Punch" then return end
+    end
 
+    -- Aktivieren -> triggert Parent.Activated in deinem Tool-Script
     local now = os.clock()
     if now - lastUse >= USE_INTERVAL then
         lastUse = now
-        pcall(function() tool:Activate() end)
+        pcall(function() equipped:Activate() end)
     end
 end)
+
 
 --farm
 local test = true
