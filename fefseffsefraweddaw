@@ -1,0 +1,223 @@
+-- == SERVICES UND GRUNDVARIABLEN ==
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/obeseinsect/roblox/main/Ui%20Libraries/Elerium.lua"))()
+-- == GUI-FENSTER ==
+local Window = library:AddWindow("Muki's private", {
+    main_color = Color3.fromRGB(100, 100, 255),
+    min_size = Vector2.new(400, 400),
+    toggle_key = Enum.KeyCode.RightShift,
+    can_resize = true,
+})
+local killTab = Window:AddTab("Auto Kill")
+--autokill logik
+local autoKillEnabled = true
+killTab:AddSwitch("Auto Kill", function(state)
+    autoKillEnabled = state
+end)
+RunService.RenderStepped:Connect(function()
+    if not autoKillEnabled then return end
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = character.HumanoidRootPart
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local db = plr.Character:FindFirstChild("DamageBox") or plr.Character:FindFirstChild("RightHand")
+            if db and db:IsA("BasePart") then
+                db.CFrame = hrp.CFrame * CFrame.new(0, 0, -2)
+            end
+        end
+    end
+end)
+---------------------------------------------------------------------
+-- Services & Basics
+---------------------------------------------------------------------
+local Players = game:GetService("Players")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+
+local LOCAL_PLAYER = Players.LocalPlayer
+local PLACE_ID = game.PlaceId
+local CURRENT_JOBID = game.JobId
+
+-- Settings
+local HOP_INTERVAL = 30
+local PLAYER_CAP   = 20
+local MAX_PER_PAGE = 100
+local MAX_PAGES    = 4
+
+-- State
+local AUTO_HOP_ENABLED = true     -- bleibt via UI IMMER true
+local killedOnce = false
+local hopping    = false
+local recentJobIds = {[CURRENT_JOBID] = true}
+
+---------------------------------------------------------------------
+-- UI Switch (immer TRUE)
+---------------------------------------------------------------------
+local setSwitch
+local switchWidget = killTab:AddSwitch("Auto Hop", true, function(v)
+    if v ~= true then
+        AUTO_HOP_ENABLED = true
+        if setSwitch then pcall(function() setSwitch(true) end) end
+    end
+end)
+if switchWidget then
+    if switchWidget.Set then
+        setSwitch = function(v) switchWidget:Set(v) end
+    elseif switchWidget.SetState then
+        setSwitch = function(v) switchWidget:SetState(v) end
+    elseif switchWidget.SetValue then
+        setSwitch = function(v) switchWidget:SetValue(v) end
+    end
+end
+-- Sicherheitsnetz: alle 2s TRUE (falls Lib intern cached)
+task.spawn(function()
+    while task.wait(2) do
+        AUTO_HOP_ENABLED = true
+        if setSwitch then pcall(function() setSwitch(true) end) end
+    end
+end)
+
+---------------------------------------------------------------------
+-- HTTP-Implementierung (HttpService oder Executor-request)
+---------------------------------------------------------------------
+local requestImpl
+do
+    local ok,_ = pcall(function() return HttpService:GetAsync("https://example.com", false) end)
+    if ok then
+        requestImpl = function(url)
+            local ok2, body = pcall(function() return HttpService:GetAsync(url, false) end)
+            if ok2 then return true, body end
+            return false, body
+        end
+    else
+        local exploitReq = rawget(getfenv(), "http_request")
+                        or rawget(getfenv(), "request")
+                        or (syn and syn.request)
+        if exploitReq then
+            requestImpl = function(url)
+                local res = exploitReq({Url = url, Method = "GET"})
+                if res and res.StatusCode and res.StatusCode >= 200 and res.StatusCode < 300 then
+                    return true, res.Body
+                end
+                return false, "HTTP error"
+            end
+        else
+            requestImpl = nil
+        end
+    end
+end
+
+---------------------------------------------------------------------
+-- Beste Serverwahl: < PLAYER_CAP & maximal spielend
+---------------------------------------------------------------------
+local function getBestServerUnderCap()
+    if not requestImpl then
+        warn("[ServerHopper] Kein HTTP verfügbar (HttpService off / kein exploit-request).")
+        return nil
+    end
+
+    local best = nil
+    local cursor = nil
+    local pages  = 0
+
+    repeat
+        local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&limit=%d%s"):format(
+            PLACE_ID,
+            MAX_PER_PAGE,
+            cursor and ("&cursor=" .. HttpService:UrlEncode(cursor)) or ""
+        )
+
+        local ok, body = requestImpl(url)
+        if not ok then break end
+
+        local payload
+        local okDecode = pcall(function() payload = HttpService:JSONDecode(body) end)
+        if not okDecode or not payload or not payload.data then break end
+
+        for _, srv in ipairs(payload.data) do
+            local playing = tonumber(srv.playing) or 0
+            local cap     = tonumber(srv.maxPlayers) or 0
+            local open    = cap - playing
+
+            if playing < PLAYER_CAP and open > 0 and not recentJobIds[srv.id] then
+                if (not best) or (playing > best.playing) then
+                    best = {id = srv.id, playing = playing, cap = cap}
+                end
+            end
+        end
+
+        cursor = payload.nextPageCursor
+        pages = pages + 1 -- (Lua hat kein +=)
+    until not cursor or pages >= MAX_PAGES or best
+
+    return best
+end
+
+---------------------------------------------------------------------
+-- Hop-Funktion
+---------------------------------------------------------------------
+local function hop(reason)
+    if hopping then return end
+    if not AUTO_HOP_ENABLED then return end -- bleibt praktisch immer true
+    hopping = true
+
+    local target = getBestServerUnderCap()
+    if not target then
+        warn(("[ServerHopper] Kein passender Server (%s). Fallback Teleport."):format(tostring(reason)))
+        TeleportService:Teleport(PLACE_ID, LOCAL_PLAYER)
+        return
+    end
+
+    recentJobIds[target.id] = true
+    print(("[ServerHopper] HOP (%s) -> %s (%d/%d)")
+        :format(reason, target.id, target.playing, target.cap))
+
+    pcall(function() TeleportService:SetTeleportSetting("ServerHopperReason", reason) end)
+    TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, LOCAL_PLAYER)
+end
+
+---------------------------------------------------------------------
+-- Nach erstem Tod hoppen
+---------------------------------------------------------------------
+local function bindDeathHop(character)
+    local hum = character:FindFirstChildOfClass("Humanoid")
+    local function onDied()
+        if not killedOnce then
+            killedOnce = true
+            hop("death")
+        end
+    end
+    if hum then
+        hum.Died:Connect(onDied)
+    else
+        character.ChildAdded:Connect(function(child)
+            if child:IsA("Humanoid") and not killedOnce then
+                child.Died:Connect(onDied)
+            end
+        end)
+    end
+end
+
+if Players.LocalPlayer.Character then
+    bindDeathHop(Players.LocalPlayer.Character)
+end
+Players.LocalPlayer.CharacterAdded:Connect(bindDeathHop)
+
+---------------------------------------------------------------------
+-- Alle 30s hoppen (wenn nicht bereits am hoppen)
+---------------------------------------------------------------------
+task.spawn(function()
+    while true do
+        task.wait(HOP_INTERVAL)
+        if not hopping then
+            hop("timer")
+        end
+    end
+end)
+
+print("[ServerHopper] aktiv – 30s-Timer + Hop nach erstem Tod. Ziel: <20 Spieler, höchstmögliche Auslastung unter 20.")
