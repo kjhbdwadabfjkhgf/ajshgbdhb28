@@ -13,135 +13,6 @@ local Window = library:AddWindow("Muki's private", {
     can_resize = true,
 })
 local killTab = Window:AddTab("Auto Kill")
---ka logik
--- Services
-local Players     = game:GetService("Players")
-local RunService  = game:GetService("RunService")
-
-local player   = Players.LocalPlayer
-local char     = player.Character or player.CharacterAdded:Wait()
-local humanoid = char:WaitForChild("Humanoid")
-local backpack = player:WaitForChild("Backpack")
-
--- Punch einmal sauber equippen (dein Snippet 1:1)
-local punchTool = backpack:WaitForChild("Punch")
-humanoid:EquipTool(punchTool)
-
--- Nach Respawn erneut setzen
-player.CharacterAdded:Connect(function(newChar)
-    char = newChar
-    humanoid = char:WaitForChild("Humanoid")
-    backpack = player:WaitForChild("Backpack")
-    task.wait(0.3)
-    local t = backpack:FindFirstChild("Punch")
-    if t and t:IsA("Tool") then
-        pcall(function() humanoid:EquipTool(t) end)
-    end
-end)
-
--- Switch: Auto Use (standardmäßig AN)
-local autoUseEnabled = true
-local switchWidget = killTab:AddSwitch("Auto Use Punch", function(state)
-    autoUseEnabled = state
-end)
-pcall(function()
-    if switchWidget and switchWidget.Set then
-        switchWidget:Set(true) -- visuell auf AN
-    end
-end)
-
--- Tool-Use-Loop: ruft .Activate() auf dem aktuell ausgerüsteten Punch auf
-local USE_INTERVAL = 0.12  -- dein Tool-Script throttlet zusätzlich über attackTime_upvr/tick()
-local lastUse = 0
-
-RunService.RenderStepped:Connect(function()
-    if not autoUseEnabled then return end
-    if not char then return end
-
-    -- Sicherstellen, dass Punch ausgerüstet ist
-    local equipped = char:FindFirstChildWhichIsA("Tool")
-    if not equipped or equipped.Name ~= "Punch" then
-        local t = backpack:FindFirstChild("Punch")
-        if t and t:IsA("Tool") then
-            pcall(function() humanoid:EquipTool(t) end)
-        end
-        equipped = char:FindFirstChildWhichIsA("Tool")
-        if not equipped or equipped.Name ~= "Punch" then return end
-    end
-
-    -- Aktivieren -> triggert Parent.Activated in deinem Tool-Script
-    local now = os.clock()
-    if now - lastUse >= USE_INTERVAL then
-        lastUse = now
-        pcall(function() equipped:Activate() end)
-    end
-end)
-
-
---farm
-local test = true
-killTab:AddSwitch("Auto Kill", function(state)
-    test = state
-end)
-RunService.RenderStepped:Connect(function()
-    if not test then return end
-    local character = player.Character
-    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
-    local hrp = character.HumanoidRootPart
-    for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-            local db = plr.Character:FindFirstChild("DamageBox") or plr.Character:FindFirstChild("RightHand")
-            if db and db:IsA("BasePart") then
-                db.CFrame = hrp.CFrame * CFrame.new(0, 0, -2)
-            end
-        end
-    end
-end)
-
-
---autokill logik
-local player = game.Players.LocalPlayer
-local char = player.Character or player.CharacterAdded:Wait()
-local humanoid = char:WaitForChild("Humanoid")
-local backpack = player:WaitForChild("Backpack")
-
--- UI-Switch
-local autoKillEnabled = true
-killTab:AddSwitch("Auto Equip Punch", function(state)
-    autoKillEnabled = state
-    if autoKillEnabled then
-        -- dein Equip-Snippet 1:1 ausgeführt
-        local punchTool = backpack:WaitForChild("Punch")
-        humanoid:EquipTool(punchTool)
-    end
-end)
-
--- falls du nach Respawn auch wieder equippen willst
-player.CharacterAdded:Connect(function(newChar)
-    char = newChar
-    humanoid = char:WaitForChild("Humanoid")
-    backpack = player:WaitForChild("Backpack")
-    if autoKillEnabled then
-        local punchTool = backpack:WaitForChild("Punch")
-        humanoid:EquipTool(punchTool)
-    end
-end)
-
--- == SERVICES UND GRUNDVARIABLEN ==
-local Players = game:GetService("Players")
-local player = Players.LocalPlayer
-local workspace = game:GetService("Workspace")
-local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/obeseinsect/roblox/main/Ui%20Libraries/Elerium.lua"))()
--- == GUI-FENSTER ==
-local Window = library:AddWindow("Muki's private", {
-    main_color = Color3.fromRGB(100, 100, 255),
-    min_size = Vector2.new(400, 400),
-    toggle_key = Enum.KeyCode.RightShift,
-    can_resize = true,
-})
-local killTab = Window:AddTab("Auto Kill")
 --autokill logik
 local autoKillEnabled = true
 killTab:AddSwitch("Auto Kill", function(state)
@@ -185,7 +56,7 @@ local hopping    = false
 local recentJobIds = {[CURRENT_JOBID] = true}
 
 ---------------------------------------------------------------------
--- Auto-Reexec nach Teleport (dein Loadstring)
+-- Auto-Reexec nach Teleport (DEIN Loadstring)
 ---------------------------------------------------------------------
 local function queueReexec()
     local q = (syn and syn.queue_on_teleport)
@@ -201,6 +72,12 @@ local function queueReexec()
     end
 end
 
+-- Teleport-Fehler abfangen -> nicht hängen bleiben
+TeleportService.TeleportInitFailed:Connect(function(player, result, msg)
+    warn("[ServerHopper] TeleportInitFailed:", tostring(result), msg or "")
+    hopping = false      -- wieder freigeben, damit Timer/Death-Hop weiterlaufen
+end)
+
 ---------------------------------------------------------------------
 -- UI Switch (immer TRUE halten)
 ---------------------------------------------------------------------
@@ -213,7 +90,6 @@ local switchWidget = killTab:AddSwitch("Auto Hop", function(v)
         AUTO_HOP_ENABLED = true
     end
 end)
--- Falls die Lib Set-Methoden hat, merken:
 if switchWidget then
     if switchWidget.Set then
         setSwitch = function(v) switchWidget:Set(v) end
@@ -222,10 +98,8 @@ if switchWidget then
     elseif switchWidget.SetValue then
         setSwitch = function(v) switchWidget:SetValue(v) end
     end
-    -- initial visuell auf TRUE
     pcall(function() if setSwitch then setSwitch(true) end end)
 end
--- Sicherheitsnetz: alle 2s visuell/logic auf TRUE lassen
 task.spawn(function()
     while task.wait(2) do
         AUTO_HOP_ENABLED = true
@@ -272,29 +146,21 @@ local function getBestServerUnderCap()
         return nil
     end
 
-    local best = nil
-    local cursor = nil
-    local pages  = 0
-
+    local best, cursor, pages = nil, nil, 0
     repeat
         local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&limit=%d%s"):format(
-            PLACE_ID,
-            MAX_PER_PAGE,
-            cursor and ("&cursor=" .. HttpService:UrlEncode(cursor)) or ""
+            PLACE_ID, MAX_PER_PAGE, cursor and ("&cursor=" .. HttpService:UrlEncode(cursor)) or ""
         )
-
         local ok, body = requestImpl(url)
         if not ok then break end
 
-        local payload
-        local okDecode = pcall(function() payload = HttpService:JSONDecode(body) end)
+        local payload; local okDecode = pcall(function() payload = HttpService:JSONDecode(body) end)
         if not okDecode or not payload or not payload.data then break end
 
         for _, srv in ipairs(payload.data) do
             local playing = tonumber(srv.playing) or 0
             local cap     = tonumber(srv.maxPlayers) or 0
             local open    = cap - playing
-
             if playing < PLAYER_CAP and open > 0 and not recentJobIds[srv.id] then
                 if (not best) or (playing > best.playing) then
                     best = {id = srv.id, playing = playing, cap = cap}
@@ -310,7 +176,7 @@ local function getBestServerUnderCap()
 end
 
 ---------------------------------------------------------------------
--- Hop-Funktion (mit Auto-Reexec)
+-- Hop-Funktion (mit Auto-Reexec + Fallback)
 ---------------------------------------------------------------------
 local function hop(reason)
     if hopping then return end
@@ -322,6 +188,7 @@ local function hop(reason)
         warn(("[ServerHopper] Kein passender Server (%s). Fallback Teleport."):format(tostring(reason)))
         pcall(function() TeleportService:SetTeleportSetting("ServerHopperReason", reason) end)
         queueReexec()
+        -- Falls Teleport fehlschlägt, gibt TeleportInitFailed oben hopping wieder frei
         TeleportService:Teleport(PLACE_ID, LOCAL_PLAYER)
         return
     end
