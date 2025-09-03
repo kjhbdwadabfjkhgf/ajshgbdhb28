@@ -161,9 +161,9 @@ RunService.RenderStepped:Connect(function()
         end
     end
 end)
---////////////////////////////////////////////////////////////
--- Services
---////////////////////////////////////////////////////////////
+---------------------------------------------------------------------
+-- Services & Basics
+---------------------------------------------------------------------
 local Players = game:GetService("Players")
 local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
@@ -172,61 +172,52 @@ local LOCAL_PLAYER = Players.LocalPlayer
 local PLACE_ID     = game.PlaceId
 local CURRENT_JOB  = game.JobId
 
---////////////////////////////////////////////////////////////
 -- Settings
---////////////////////////////////////////////////////////////
 local HOP_INTERVAL = 30
 local PLAYER_CAP   = 20
 local MAX_PER_PAGE = 100
 local MAX_PAGES    = 4
 
---////////////////////////////////////////////////////////////
--- State (bei jedem Reload neu!)
---////////////////////////////////////////////////////////////
+-- State (wird bei jedem Reload neu gesetzt)
 local AUTO_HOP_ENABLED = true
 local killedOnce = false
 local hopping    = false
 local recentJobIds = { [CURRENT_JOB] = true }
 
---////////////////////////////////////////////////////////////
--- Auto-Reexec (dein Loadstring)
---////////////////////////////////////////////////////////////
+---------------------------------------------------------------------
+-- Auto-Reexec nach Teleport (dein Loadstring)
+---------------------------------------------------------------------
 local function queueReexec()
     local q = (syn and syn.queue_on_teleport)
            or (queue_on_teleport)
            or (fluxus and fluxus.queue_on_teleport)
+           or (KRNL_LOADED and queue_on_teleport)
     if q then
         q([[
             loadstring(game:HttpGet("https://raw.githubusercontent.com/kjhbdwadabfjkhgf/ajshgbdhb28/main/fefseffsefraweddaw"))()
         ]])
     else
-        warn("[ServerHopper] Dein Executor unterstützt kein queue_on_teleport.")
+        warn("[ServerHopper] Kein queue_on_teleport im Executor gefunden.")
     end
 end
 
--- Reset nach Respawn
+-- nach Respawn flags zurücksetzen (Backup)
 LOCAL_PLAYER.CharacterAdded:Connect(function()
     killedOnce = false
-    hopping    = false
+    hopping = false
 end)
 
--- Teleport-Fehler → nicht hängen bleiben
+-- Teleport-Fehler -> nicht hängen bleiben
 TeleportService.TeleportInitFailed:Connect(function()
     hopping = false
 end)
 
--- Watchdog: falls hopping klemmt → reset
-task.spawn(function()
-    while task.wait(10) do
-        if hopping then hopping = false end
-    end
-end)
-
---////////////////////////////////////////////////////////////
+---------------------------------------------------------------------
 -- UI Switch (immer TRUE halten)
---////////////////////////////////////////////////////////////
+---------------------------------------------------------------------
 local setSwitch
 local switchWidget = killTab:AddSwitch("Auto Hop", function(v)
+    -- Logik bleibt immer true
     AUTO_HOP_ENABLED = true
     if setSwitch then pcall(function() setSwitch(true) end) end
 end)
@@ -244,9 +235,9 @@ task.spawn(function()
     end
 end)
 
---////////////////////////////////////////////////////////////
--- HTTP Request-Funktion
---////////////////////////////////////////////////////////////
+---------------------------------------------------------------------
+-- HTTP-Implementierung (HttpService oder Executor-request)
+---------------------------------------------------------------------
 local requestImpl
 do
     local exploitReq = rawget(getfenv(), "http_request")
@@ -255,7 +246,7 @@ do
     if exploitReq then
         requestImpl = function(url)
             local res = exploitReq({Url = url, Method = "GET"})
-            if res and res.StatusCode == 200 then
+            if res and res.StatusCode and res.StatusCode >= 200 and res.StatusCode < 300 then
                 return true, res.Body
             end
             return false, "HTTP error"
@@ -268,9 +259,9 @@ do
     end
 end
 
---////////////////////////////////////////////////////////////
--- Serverwahl
---////////////////////////////////////////////////////////////
+---------------------------------------------------------------------
+-- Beste Serverwahl: < PLAYER_CAP & maximal spielend
+---------------------------------------------------------------------
 local function getBestServerUnderCap()
     local best, cursor, pages = nil, nil, 0
     repeat
@@ -286,21 +277,23 @@ local function getBestServerUnderCap()
         for _, srv in ipairs(data.data) do
             local playing = tonumber(srv.playing) or 0
             local cap     = tonumber(srv.maxPlayers) or 0
-            if playing < PLAYER_CAP and cap - playing > 0 and not recentJobIds[srv.id] then
-                if not best or playing > best.playing then
-                    best = {id = srv.id, playing = playing, cap = cap}
+            local open    = cap - playing
+            if playing < PLAYER_CAP and open > 0 and not recentJobIds[srv.id] then
+                if (not best) or (playing > best.playing) then
+                    best = { id = srv.id, playing = playing, cap = cap }
                 end
             end
         end
+
         cursor = data.nextPageCursor
-        pages = pages + 1
+        pages = pages + 1   -- ✅ FIX: kein +=
     until not cursor or pages >= MAX_PAGES or best
     return best
 end
 
---////////////////////////////////////////////////////////////
--- Hop-Funktion
---////////////////////////////////////////////////////////////
+---------------------------------------------------------------------
+-- Hop-Funktion (queued Reexec vor JEDEM Teleport)
+---------------------------------------------------------------------
 local function hop(reason)
     if hopping or not AUTO_HOP_ENABLED then return end
     hopping = true
@@ -317,9 +310,9 @@ local function hop(reason)
     TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, LOCAL_PLAYER)
 end
 
---////////////////////////////////////////////////////////////
--- Death-Hop
---////////////////////////////////////////////////////////////
+---------------------------------------------------------------------
+-- Nach erstem Tod hoppen
+---------------------------------------------------------------------
 local function bindDeathHop(character)
     local hum = character:FindFirstChildOfClass("Humanoid")
     if not hum then return end
@@ -330,15 +323,15 @@ local function bindDeathHop(character)
         end
     end)
 end
-
 if LOCAL_PLAYER.Character then bindDeathHop(LOCAL_PLAYER.Character) end
 LOCAL_PLAYER.CharacterAdded:Connect(bindDeathHop)
 
---////////////////////////////////////////////////////////////
--- 30-Sekunden-Timer
---////////////////////////////////////////////////////////////
+---------------------------------------------------------------------
+-- 30-Sekunden-Timer (bei jedem Reload neu gestartet)
+---------------------------------------------------------------------
 task.spawn(function()
-    while task.wait(HOP_INTERVAL) do
+    while true do
+        task.wait(HOP_INTERVAL)
         if not hopping then hop("timer") end
     end
 end)
