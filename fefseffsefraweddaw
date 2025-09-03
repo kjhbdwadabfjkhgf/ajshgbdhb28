@@ -14,7 +14,7 @@ local Window = library:AddWindow("Muki's private", {
 })
 local killTab = Window:AddTab("Auto Kill")
 --autokill logik
-local autoKillEnabled = false
+local autoKillEnabled = true
 killTab:AddSwitch("Auto Kill", function(state)
     autoKillEnabled = state
 end)
@@ -32,7 +32,7 @@ RunService.RenderStepped:Connect(function()
         end
     end
 end)
-------------------------------------------------------------
+---------------------------------------------------------------------
 -- Services & Basics
 ---------------------------------------------------------------------
 local Players = game:GetService("Players")
