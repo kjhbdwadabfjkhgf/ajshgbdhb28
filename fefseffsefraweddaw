@@ -13,6 +13,135 @@ local Window = library:AddWindow("Muki's private", {
     can_resize = true,
 })
 local killTab = Window:AddTab("Auto Kill")
+--ka logik
+-- Services
+local Players     = game:GetService("Players")
+local RunService  = game:GetService("RunService")
+
+local player   = Players.LocalPlayer
+local char     = player.Character or player.CharacterAdded:Wait()
+local humanoid = char:WaitForChild("Humanoid")
+local backpack = player:WaitForChild("Backpack")
+
+-- Punch einmal sauber equippen (dein Snippet 1:1)
+local punchTool = backpack:WaitForChild("Punch")
+humanoid:EquipTool(punchTool)
+
+-- Nach Respawn erneut setzen
+player.CharacterAdded:Connect(function(newChar)
+    char = newChar
+    humanoid = char:WaitForChild("Humanoid")
+    backpack = player:WaitForChild("Backpack")
+    task.wait(0.3)
+    local t = backpack:FindFirstChild("Punch")
+    if t and t:IsA("Tool") then
+        pcall(function() humanoid:EquipTool(t) end)
+    end
+end)
+
+-- Switch: Auto Use (standardmäßig AN)
+local autoUseEnabled = true
+local switchWidget = killTab:AddSwitch("Auto Use Punch", function(state)
+    autoUseEnabled = state
+end)
+pcall(function()
+    if switchWidget and switchWidget.Set then
+        switchWidget:Set(true) -- visuell auf AN
+    end
+end)
+
+-- Tool-Use-Loop: ruft .Activate() auf dem aktuell ausgerüsteten Punch auf
+local USE_INTERVAL = 0.12  -- dein Tool-Script throttlet zusätzlich über attackTime_upvr/tick()
+local lastUse = 0
+
+RunService.RenderStepped:Connect(function()
+    if not autoUseEnabled then return end
+    if not char then return end
+
+    -- Sicherstellen, dass Punch ausgerüstet ist
+    local equipped = char:FindFirstChildWhichIsA("Tool")
+    if not equipped or equipped.Name ~= "Punch" then
+        local t = backpack:FindFirstChild("Punch")
+        if t and t:IsA("Tool") then
+            pcall(function() humanoid:EquipTool(t) end)
+        end
+        equipped = char:FindFirstChildWhichIsA("Tool")
+        if not equipped or equipped.Name ~= "Punch" then return end
+    end
+
+    -- Aktivieren -> triggert Parent.Activated in deinem Tool-Script
+    local now = os.clock()
+    if now - lastUse >= USE_INTERVAL then
+        lastUse = now
+        pcall(function() equipped:Activate() end)
+    end
+end)
+
+
+--farm
+local test = true
+killTab:AddSwitch("Auto Kill", function(state)
+    test = state
+end)
+RunService.RenderStepped:Connect(function()
+    if not test then return end
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = character.HumanoidRootPart
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local db = plr.Character:FindFirstChild("DamageBox") or plr.Character:FindFirstChild("RightHand")
+            if db and db:IsA("BasePart") then
+                db.CFrame = hrp.CFrame * CFrame.new(0, 0, -2)
+            end
+        end
+    end
+end)
+
+
+--autokill logik
+local player = game.Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local humanoid = char:WaitForChild("Humanoid")
+local backpack = player:WaitForChild("Backpack")
+
+-- UI-Switch
+local autoKillEnabled = true
+killTab:AddSwitch("Auto Equip Punch", function(state)
+    autoKillEnabled = state
+    if autoKillEnabled then
+        -- dein Equip-Snippet 1:1 ausgeführt
+        local punchTool = backpack:WaitForChild("Punch")
+        humanoid:EquipTool(punchTool)
+    end
+end)
+
+-- falls du nach Respawn auch wieder equippen willst
+player.CharacterAdded:Connect(function(newChar)
+    char = newChar
+    humanoid = char:WaitForChild("Humanoid")
+    backpack = player:WaitForChild("Backpack")
+    if autoKillEnabled then
+        local punchTool = backpack:WaitForChild("Punch")
+        humanoid:EquipTool(punchTool)
+    end
+end)
+
+-- == SERVICES UND GRUNDVARIABLEN ==
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/obeseinsect/roblox/main/Ui%20Libraries/Elerium.lua"))()
+-- == GUI-FENSTER ==
+local Window = library:AddWindow("Muki's private", {
+    main_color = Color3.fromRGB(100, 100, 255),
+    min_size = Vector2.new(400, 400),
+    toggle_key = Enum.KeyCode.RightShift,
+    can_resize = true,
+})
+local killTab = Window:AddTab("Auto Kill")
 --autokill logik
 local autoKillEnabled = true
 killTab:AddSwitch("Auto Kill", function(state)
