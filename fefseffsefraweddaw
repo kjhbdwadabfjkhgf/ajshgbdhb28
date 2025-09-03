@@ -169,8 +169,8 @@ local TeleportService = game:GetService("TeleportService")
 local HttpService = game:GetService("HttpService")
 
 local LOCAL_PLAYER = Players.LocalPlayer
-local PLACE_ID = game.PlaceId
-local CURRENT_JOBID = game.JobId
+local PLACE_ID     = game.PlaceId
+local CURRENT_JOB  = game.JobId
 
 -- Settings
 local HOP_INTERVAL = 30
@@ -178,11 +178,11 @@ local PLAYER_CAP   = 20
 local MAX_PER_PAGE = 100
 local MAX_PAGES    = 4
 
--- State
+-- State (wird bei jedem Reload neu gesetzt!)
 local AUTO_HOP_ENABLED = true
 local killedOnce = false
 local hopping    = false
-local recentJobIds = {[CURRENT_JOBID] = true}
+local recentJobIds = { [CURRENT_JOB] = true }
 
 ---------------------------------------------------------------------
 -- Auto-Reexec nach Teleport (DEIN Loadstring)
@@ -197,14 +197,29 @@ local function queueReexec()
             loadstring(game:HttpGet("https://raw.githubusercontent.com/kjhbdwadabfjkhgf/ajshgbdhb28/main/fefseffsefraweddaw"))()
         ]])
     else
-        warn("[ServerHopper] Kein queue_on_teleport im Executor gefunden.")
+        warn("[ServerHopper] Kein queue_on_teleport im Executor gefunden (Reexec nicht möglich).")
     end
 end
 
--- Teleport-Fehler abfangen -> nicht hängen bleiben
-TeleportService.TeleportInitFailed:Connect(function(player, result, msg)
+-- Nach Ankunft in neuem Server: Flags erneut erlauben (falls Executor Reexec NICHT kann)
+LOCAL_PLAYER.CharacterAdded:Connect(function()
+    -- Bei richtiger Reexec ist das egal, aber als Backup setzen wir neu:
+    killedOnce = false
+    hopping    = false
+end)
+
+-- Teleport-Fehler -> nicht hängen bleiben
+TeleportService.TeleportInitFailed:Connect(function(_, result, msg)
     warn("[ServerHopper] TeleportInitFailed:", tostring(result), msg or "")
-    hopping = false      -- wieder freigeben, damit Timer/Death-Hop weiterlaufen
+    hopping = false
+end)
+
+-- Watchdog: falls „hopping“ stecken bleibt, nach 10s freigeben
+task.spawn(function()
+    while true do
+        task.wait(10)
+        if hopping then hopping = false end
+    end
 end)
 
 ---------------------------------------------------------------------
@@ -212,20 +227,14 @@ end)
 ---------------------------------------------------------------------
 local setSwitch
 local switchWidget = killTab:AddSwitch("Auto Hop", function(v)
-    if v ~= true then
-        AUTO_HOP_ENABLED = true
-        if setSwitch then pcall(function() setSwitch(true) end) end
-    else
-        AUTO_HOP_ENABLED = true
-    end
+    -- Toggle optisch zulassen, Logik bleibt immer an
+    AUTO_HOP_ENABLED = true
+    if setSwitch then pcall(function() setSwitch(true) end) end
 end)
 if switchWidget then
-    if switchWidget.Set then
-        setSwitch = function(v) switchWidget:Set(v) end
-    elseif switchWidget.SetState then
-        setSwitch = function(v) switchWidget:SetState(v) end
-    elseif switchWidget.SetValue then
-        setSwitch = function(v) switchWidget:SetValue(v) end
+    if switchWidget.Set then       setSwitch = function(v) switchWidget:Set(v) end
+    elseif switchWidget.SetState then setSwitch = function(v) switchWidget:SetState(v) end
+    elseif switchWidget.SetValue then setSwitch = function(v) switchWidget:SetValue(v) end
     end
     pcall(function() if setSwitch then setSwitch(true) end end)
 end
@@ -274,7 +283,6 @@ local function getBestServerUnderCap()
         warn("[ServerHopper] Kein HTTP verfügbar (HttpService off / kein exploit-request).")
         return nil
     end
-
     local best, cursor, pages = nil, nil, 0
     repeat
         local url = ("https://games.roblox.com/v1/games/%d/servers/Public?sortOrder=Desc&limit=%d%s"):format(
@@ -283,29 +291,26 @@ local function getBestServerUnderCap()
         local ok, body = requestImpl(url)
         if not ok then break end
 
-        local payload; local okDecode = pcall(function() payload = HttpService:JSONDecode(body) end)
-        if not okDecode or not payload or not payload.data then break end
+        local data; local okDec = pcall(function() data = HttpService:JSONDecode(body) end)
+        if not okDec or not data or not data.data then break end
 
-        for _, srv in ipairs(payload.data) do
+        for _, srv in ipairs(data.data) do
             local playing = tonumber(srv.playing) or 0
             local cap     = tonumber(srv.maxPlayers) or 0
-            local open    = cap - playing
-            if playing < PLAYER_CAP and open > 0 and not recentJobIds[srv.id] then
+            if playing < PLAYER_CAP and (cap - playing) > 0 and not recentJobIds[srv.id] then
                 if (not best) or (playing > best.playing) then
-                    best = {id = srv.id, playing = playing, cap = cap}
+                    best = { id = srv.id, playing = playing, cap = cap }
                 end
             end
         end
-
-        cursor = payload.nextPageCursor
+        cursor = data.nextPageCursor
         pages = pages + 1
     until not cursor or pages >= MAX_PAGES or best
-
     return best
 end
 
 ---------------------------------------------------------------------
--- Hop-Funktion (mit Auto-Reexec + Fallback)
+-- Hop-Funktion (queued Reexec vor JEDEM Teleport)
 ---------------------------------------------------------------------
 local function hop(reason)
     if hopping then return end
@@ -316,8 +321,7 @@ local function hop(reason)
     if not target then
         warn(("[ServerHopper] Kein passender Server (%s). Fallback Teleport."):format(tostring(reason)))
         pcall(function() TeleportService:SetTeleportSetting("ServerHopperReason", reason) end)
-        queueReexec()
-        -- Falls Teleport fehlschlägt, gibt TeleportInitFailed oben hopping wieder frei
+        queueReexec() -- beim Fallback auch re-queuen
         TeleportService:Teleport(PLACE_ID, LOCAL_PLAYER)
         return
     end
@@ -326,12 +330,12 @@ local function hop(reason)
     print(("[ServerHopper] HOP (%s) -> %s (%d/%d)"):format(reason, target.id, target.playing, target.cap))
 
     pcall(function() TeleportService:SetTeleportSetting("ServerHopperReason", reason) end)
-    queueReexec()
+    queueReexec() -- <== WICHTIG: vor jedem Teleport dein Loadstring in die Queue
     TeleportService:TeleportToPlaceInstance(PLACE_ID, target.id, LOCAL_PLAYER)
 end
 
 ---------------------------------------------------------------------
--- Nach erstem Tod hoppen
+-- Nach erstem Kill/Tod hoppen (bei jedem Reload neu gebunden)
 ---------------------------------------------------------------------
 local function bindDeathHop(character)
     local hum = character:FindFirstChildOfClass("Humanoid")
@@ -352,19 +356,21 @@ local function bindDeathHop(character)
     end
 end
 
-if Players.LocalPlayer.Character then
-    bindDeathHop(Players.LocalPlayer.Character)
-end
-Players.LocalPlayer.CharacterAdded:Connect(bindDeathHop)
+if LOCAL_PLAYER.Character then bindDeathHop(LOCAL_PLAYER.Character) end
+LOCAL_PLAYER.CharacterAdded:Connect(function(char)
+    -- Bei jedem Reload/Serverwechsel erneut an den neuen Charakter binden
+    killedOnce = false     -- Reset für den neuen Server
+    bindDeathHop(char)
+end)
 
 ---------------------------------------------------------------------
--- Alle 30s hoppen (wenn nicht bereits am hoppen)
+-- 30-Sek-Timer (bei jedem Reload neu gestartet)
 ---------------------------------------------------------------------
 task.spawn(function()
     while true do
         task.wait(HOP_INTERVAL)
-        if not hopping then
-            hop("timer")
-        end
+        if not hopping then hop("timer") end
     end
 end)
+
+print("[ServerHopper] aktiv – Timer (30s) & Death-Hop werden bei jedem Reload/Server neu gestartet.")
