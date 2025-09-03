@@ -14,48 +14,29 @@ local Window = library:AddWindow("Muki's private", {
 })
 local killTab = Window:AddTab("Auto Kill")
 --autokill logik
+-- Services (für den Loop)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 
-local player = Players.LocalPlayer
+-- Dein Equip-Snippet (unverändert)
+local player = game.Players.LocalPlayer
 local char = player.Character or player.CharacterAdded:Wait()
 local humanoid = char:WaitForChild("Humanoid")
 local backpack = player:WaitForChild("Backpack")
-
--- Punch Tool einmal equippen
 local punchTool = backpack:WaitForChild("Punch")
 humanoid:EquipTool(punchTool)
 
--- Nach Respawn neu equippen
-player.CharacterAdded:Connect(function(newChar)
-    char = newChar
-    humanoid = char:WaitForChild("Humanoid")
-    backpack = player:WaitForChild("Backpack")
-    task.wait(0.3)
-    local t = backpack:FindFirstChild("Punch")
-    if t and t:IsA("Tool") then
-        pcall(function() humanoid:EquipTool(t) end)
-    end
-end)
-
--- UI-Switch
+-- Dein Switch + Loop (unverändert; setzt voraus, dass killTab existiert)
 local autoKillEnabled = false
 killTab:AddSwitch("Auto Kill", function(state)
     autoKillEnabled = state
 end)
 
--- Loop: Gegner vor dich ziehen & Punch benutzen
-local lastUse = 0
-local USE_INTERVAL = 0.12 -- Punch-Spam Intervall
-
 RunService.RenderStepped:Connect(function()
     if not autoKillEnabled then return end
     local character = player.Character
-    if not character then return end
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-
-    -- Gegner vor dich ziehen
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = character.HumanoidRootPart
     for _, plr in pairs(Players:GetPlayers()) do
         if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
             local db = plr.Character:FindFirstChild("DamageBox") or plr.Character:FindFirstChild("RightHand")
@@ -64,14 +45,8 @@ RunService.RenderStepped:Connect(function()
             end
         end
     end
-
-    -- Punch benutzen (Tool.Activated triggern)
-    local equipped = character:FindFirstChild("Punch")
-    if equipped and os.clock() - lastUse >= USE_INTERVAL then
-        lastUse = os.clock()
-        pcall(function() equipped:Activate() end)
-    end
 end)
+
 
 ------------------------------------------------------------------------------------------------------------------------
 -- Services & Basics
