@@ -14,7 +14,7 @@ local Window = library:AddWindow("Muki's private", {
 })
 local killTab = Window:AddTab("Auto Kill")
 --pos lock
-local posLockEnabled = false
+local posLockEnabled = true
 local lockedPosition = nil
 killTab:AddSwitch("Position Lock", function(state)
     posLockEnabled = state
