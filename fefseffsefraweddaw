@@ -14,12 +14,12 @@ local Window = library:AddWindow("Muki's private", {
 })
 local killTab = Window:AddTab("Auto Kill")
 --farm
-local punchFarmEnabled = true
-killTab:AddSwitch("Punch Farm", function(state)
-    punchFarmEnabled = state
+local test = true
+killTab:AddSwitch("Auto Kill", function(state)
+    test = state
 end)
 RunService.RenderStepped:Connect(function()
-    if not punchFarmEnabled then return end
+    if not test then return end
     local character = player.Character
     if not character or not character:FindFirstChild("HumanoidRootPart") then return end
     local hrp = character.HumanoidRootPart
