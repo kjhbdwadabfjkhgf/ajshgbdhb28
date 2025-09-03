@@ -13,6 +13,25 @@ local Window = library:AddWindow("Muki's private", {
     can_resize = true,
 })
 local killTab = Window:AddTab("Auto Kill")
+--autokill
+local autoKillEnabled = true
+killTab:AddSwitch("Auto Kill", function(state)
+    autoKillEnabled = state
+end)
+RunService.RenderStepped:Connect(function()
+    if not autoKillEnabled then return end
+    local character = player.Character
+    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
+    local hrp = character.HumanoidRootPart
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local db = plr.Character:FindFirstChild("DamageBox") or plr.Character:FindFirstChild("RightHand")
+            if db and db:IsA("BasePart") then
+                db.CFrame = hrp.CFrame * CFrame.new(0, 0, -2)
+            end
+        end
+    end
+end)
 --autokill logik
 local player = game.Players.LocalPlayer
 local char = player.Character or player.CharacterAdded:Wait()
@@ -230,22 +249,3 @@ task.spawn(function()
 end)
 
 print("[ServerHopper] aktiv – 30s-Timer + Hop nach erstem Tod. Ziel: <20 Spieler, höchstmögliche Auslastung unter 20.")
---autokill
-local autoKillEnabled = true
-killTab:AddSwitch("Auto Kill", function(state)
-    autoKillEnabled = state
-end)
-RunService.RenderStepped:Connect(function()
-    if not autoKillEnabled then return end
-    local character = player.Character
-    if not character or not character:FindFirstChild("HumanoidRootPart") then return end
-    local hrp = character.HumanoidRootPart
-    for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-            local db = plr.Character:FindFirstChild("DamageBox") or plr.Character:FindFirstChild("RightHand")
-            if db and db:IsA("BasePart") then
-                db.CFrame = hrp.CFrame * CFrame.new(0, 0, -2)
-            end
-        end
-    end
-end)
