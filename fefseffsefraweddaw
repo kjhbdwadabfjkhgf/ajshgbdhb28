@@ -1,3 +1,4 @@
+--test
 -- == SERVICES UND GRUNDVARIABLEN ==
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
@@ -14,36 +15,114 @@ local Window = library:AddWindow("Muki's private", {
 })
 local killTab = Window:AddTab("Auto Kill")
 --autokill logik
-local autoKill2Enabled = true
-killTab:AddSwitch("Auto Kill 2", function(state)
-    autoKill2Enabled = state
-end)
-local function useTool()
-    local tool = player.Character and player.Character:FindFirstChildOfClass("Tool")
-    if tool and tool:FindFirstChild("RemoteEvent") then
-        tool.RemoteEvent:FireServer()
-    elseif tool then
-        tool:Activate()
-    end
-end
-RunService.RenderStepped:Connect(function()
-    if not autoKill2Enabled then return end
-    local character = player.Character
-    if not character then return end
-    local myHitbox = character:FindFirstChild("RightHand") or character:FindFirstChild("DamageBox")
-    if not myHitbox then return end
-    for _, plr in pairs(Players:GetPlayers()) do
-        if plr ~= player and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-            local targetBox = plr.Character:FindFirstChild("DamageBox") or plr.Character:FindFirstChild("HumanoidRootPart")
-            if targetBox and targetBox:IsA("BasePart") then
-                myHitbox.CFrame = targetBox.CFrame * CFrame.new(0, 0, -1)
-                useTool()
-                task.wait(0.05)
-            end
+-- Services & Basics
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local VIM = game:GetService("VirtualInputManager")
+
+local player = Players.LocalPlayer
+
+-- ========================
+-- Einstellungen
+-- ========================
+local USE_INTERVAL = 0.15   -- wie oft das Tool „benutzen“ (Activate) (Sekunden)
+local SLOT_KEY = Enum.KeyCode.One  -- Hotbar-Slot 1
+local PULL_OFFSET = CFrame.new(0, 0, -2) -- Hitbox 2 Studs vor dir
+local ONLY_ALIVE = true      -- nur Gegner mit HP > 0 ziehen (wenn Humanoid existiert)
+
+-- ========================
+-- Switch: IMMER AN
+-- ========================
+local autoKillEnabled = true
+local switchWidget = killTab:AddSwitch("Auto Kill", function(state)
+    if state ~= true then
+        autoKillEnabled = true
+        if switchWidget and switchWidget.Set then
+            pcall(function() switchWidget:Set(true) end)
         end
     end
 end)
----------------------------------------------------------------------
+if switchWidget and switchWidget.Set then
+    pcall(function() switchWidget:Set(true) end)
+end
+-- Sicherheitsnetz: regelmäßig visuell auf TRUE halten
+task.spawn(function()
+    while task.wait(2) do
+        autoKillEnabled = true
+        if switchWidget and switchWidget.Set then
+            pcall(function() switchWidget:Set(true) end)
+        end
+    end
+end)
+
+-- ========================
+-- Helper: Slot 1 equippen & aktivieren (triggert Tool.Activated looped)
+-- ========================
+local lastUse = 0
+local function equipAndActivateSlot1()
+    -- Slot 1 drücken
+    VIM:SendKeyEvent(true,  SLOT_KEY, false, game)
+    VIM:SendKeyEvent(false, SLOT_KEY, false, game)
+    -- ein Hauch warten, bis equippt
+    task.wait(0.05)
+
+    local char = player.Character
+    if not char then return end
+    local equipped = char:FindFirstChildWhichIsA("Tool")
+    if equipped then
+        -- Tool benutzen -> löst Parent.Activated im Tool aus (dein Script feuert Punch)
+        pcall(function() equipped:Activate() end)
+    end
+end
+
+local function maybeUse()
+    local now = os.clock()
+    if now - lastUse >= USE_INTERVAL then
+        lastUse = now
+        equipAndActivateSlot1()
+    end
+end
+
+-- ========================
+-- LOOP: Hitbox ziehen + Tool spammen
+-- ========================
+RunService.RenderStepped:Connect(function()
+    if not autoKillEnabled then return end
+
+    local character = player.Character
+    if not character then return end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    -- 1) Tool geloopt triggern (equip + Activate)
+    maybeUse()
+
+    -- 2) Gegner-Hitboxen vor uns „ziehen“
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= player then
+            local ch = plr.Character
+            if ch then
+                local targetHRP = ch:FindFirstChild("HumanoidRootPart")
+                if targetHRP then
+                    local hb = ch:FindFirstChild("DamageBox") or ch:FindFirstChild("RightHand")
+                    if hb and hb:IsA("BasePart") then
+                        -- optional: nur lebende Ziele
+                        if ONLY_ALIVE then
+                            local hum = ch:FindFirstChildOfClass("Humanoid")
+                            if hum and hum.Health <= 0 then
+                                goto continue
+                            end
+                        end
+                        hb.CFrame = hrp.CFrame * PULL_OFFSET
+                    end
+                end
+            end
+        end
+        ::continue::
+    end
+end)
+
+------------------------------------------------------------
 -- Services & Basics
 ---------------------------------------------------------------------
 local Players = game:GetService("Players")
