@@ -1,0 +1,588 @@
+-- UI-LIB SIGNATURE v1
+-- NAME: SideTabsUILib
+-- VERSION: 1.0.0
+
+--!strict
+----------------------------------------------------------------
+-- Services
+----------------------------------------------------------------
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+
+----------------------------------------------------------------
+-- Theme
+----------------------------------------------------------------
+local Theme = {
+	Font = Enum.Font.Gotham,
+	FontSize = 14,
+	Corner = 8,
+	Padding = 8,
+	Colors = {
+		Bg      = Color3.fromRGB(26,26,28),
+		Panel   = Color3.fromRGB(34,34,38),
+		Text    = Color3.fromRGB(235,235,235),
+		Accent  = Color3.fromRGB(90,140,255),
+		Muted   = Color3.fromRGB(160,160,170),
+		Stroke  = Color3.fromRGB(60,60,70),
+		Fill    = Color3.fromRGB(48,48,54),
+		Active  = Color3.fromRGB(70,100,200), -- aktive Tab-Farbe (Button)
+	}
+}
+
+----------------------------------------------------------------
+-- Helpers
+----------------------------------------------------------------
+local function corner(p: Instance, r: number?)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, r or Theme.Corner)
+	c.Parent = p
+	return c
+end
+
+local function stroke(p: Instance)
+	local s = Instance.new("UIStroke")
+	s.Color = Theme.Colors.Stroke
+	s.Thickness = 1
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = p
+	return s
+end
+
+local function padding(p: Instance, px: number?)
+	local v = UDim.new(0, px or Theme.Padding)
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = v; pad.PaddingBottom = v; pad.PaddingLeft = v; pad.PaddingRight = v
+	pad.Parent = p
+	return pad
+end
+
+local function makeMovable(frame: Frame, dragHandle: GuiObject?)
+	local handle = dragHandle or frame
+	local dragging = false
+	local startPos: UDim2 = frame.Position
+	local start: Vector2 = Vector2.new()
+
+	handle.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = true
+			start = input.Position
+			startPos = frame.Position
+			input.Changed:Connect(function()
+				if input.UserInputState == Enum.UserInputState.End then
+					dragging = false
+				end
+			end)
+		end
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+			local delta = input.Position - start
+			frame.Position = UDim2.new(
+				startPos.X.Scale, startPos.X.Offset + delta.X,
+				startPos.Y.Scale, startPos.Y.Offset + delta.Y
+			)
+		end
+	end)
+end
+
+local function ensureScreen(): ScreenGui
+	local pg = Players.LocalPlayer and Players.LocalPlayer:FindFirstChild("PlayerGui")
+		or Players.LocalPlayer and Players.LocalPlayer:WaitForChild("PlayerGui")
+	if not pg then
+		-- Fallback (Server baut ScreenGui, wird bei Join repliziert)
+		local s = Instance.new("ScreenGui")
+		s.Name = "UILibScreen"
+		s.ResetOnSpawn = false
+		s.Parent = game:GetService("StarterGui")
+		return s
+	end
+	local existing = pg:FindFirstChild("UILibScreen")
+	if existing then
+		return existing :: ScreenGui
+	end
+	local s = Instance.new("ScreenGui")
+	s.Name = "UILibScreen"
+	s.ResetOnSpawn = false
+	s.Parent = pg
+	return s
+end
+
+----------------------------------------------------------------
+-- Components Registry
+----------------------------------------------------------------
+local Components: {[string]: any} = {}
+
+----------------------------------------------------------------
+-- Stack (vertical layout)
+----------------------------------------------------------------
+do
+	local Stack = {}; Stack.Name = "Stack"
+	function Stack.Create(props: {[string]: any}?): Frame
+		local f = Instance.new("Frame")
+		f.BackgroundTransparency = 1
+		f.Size = (props and props.Size) or UDim2.fromOffset(240, 140)
+
+		local list = Instance.new("UIListLayout")
+		list.SortOrder = Enum.SortOrder.LayoutOrder
+		list.Padding = UDim.new(0, (props and props.Spacing) or Theme.Padding)
+		list.Parent = f
+
+		if props and props.Parent then f.Parent = props.Parent end
+		return f
+	end
+	Components[Stack.Name] = Stack
+end
+
+----------------------------------------------------------------
+-- Panel / Window (Header, Drag, Collapse, Content-Holder)
+----------------------------------------------------------------
+do
+	local Panel = {}; Panel.Name = "Panel"
+	function Panel.Create(props: {[string]: any}): Frame
+		local f = Instance.new("Frame")
+		f.BackgroundColor3 = Theme.Colors.Panel
+		f.Size = props.Size or UDim2.fromOffset(360, 240)
+		f.Position = props.Position or UDim2.fromOffset(80, 80)
+		corner(f); stroke(f); padding(f)
+
+		local headerHeight = 28
+		local header: TextLabel? = nil
+		local collapseBtn: TextButton? = nil
+
+		if props.Title then
+			local h = Instance.new("TextLabel")
+			h.Name = "__Header"
+			h.BackgroundTransparency = 1
+			h.Font = Theme.Font
+			h.TextSize = Theme.FontSize + 2
+			h.TextColor3 = Theme.Colors.Text
+			h.TextXAlignment = Enum.TextXAlignment.Left
+			h.Text = props.Title
+			h.Size = UDim2.new(1, -Theme.Padding*2 - 24, 0, headerHeight) -- Platz rechts für Collapse-Button
+			h.Position = UDim2.fromOffset(Theme.Padding, 0)
+			h.Parent = f
+			header = h
+
+			local line = Instance.new("Frame")
+			line.BackgroundColor3 = Theme.Colors.Stroke
+			line.BorderSizePixel = 0
+			line.Size = UDim2.new(1, -Theme.Padding*2, 0, 1)
+			line.Position = UDim2.fromOffset(Theme.Padding, headerHeight)
+			line.Parent = f
+
+			local b = Instance.new("TextButton")
+			b.Name = "__Collapse"
+			b.Text = "–" -- wird zu "+" im collapsed state
+			b.Font = Theme.Font
+			b.TextSize = Theme.FontSize
+			b.TextColor3 = Theme.Colors.Text
+			b.BackgroundColor3 = Theme.Colors.Fill
+			b.AutoButtonColor = true
+			b.Size = UDim2.fromOffset(22, 22)
+			b.Position = UDim2.new(1, -Theme.Padding - 22, 0, 3)
+			b.Parent = f
+			corner(b, 6); stroke(b)
+			collapseBtn = b
+		end
+
+		local content = Instance.new("Frame")
+		content.Name = "__Content"
+		content.BackgroundTransparency = 1
+		content.Size = UDim2.new(1, 0, 1, -(props.Title and (headerHeight + Theme.Padding) or 0) - Theme.Padding)
+		content.Position = UDim2.fromOffset(0, (props.Title and (headerHeight + Theme.Padding) or 0))
+		content.Parent = f
+
+		if props.Movable ~= false then
+			makeMovable(f, header)
+		end
+
+		if collapseBtn then
+			local collapsed = false
+			local savedSize = f.Size
+			local function apply()
+				if collapsed then
+					content.Visible = false
+					f.Size = UDim2.new(savedSize.X.Scale, savedSize.X.Offset, 0, headerHeight + Theme.Padding*2)
+					collapseBtn.Text = "+"
+				else
+					f.Size = savedSize
+					content.Visible = true
+					collapseBtn.Text = "–"
+				end
+			end
+			collapseBtn.MouseButton1Click:Connect(function()
+				if not collapsed then savedSize = f.Size end
+				collapsed = not collapsed
+				apply()
+			end)
+		end
+
+		if props.Parent then f.Parent = props.Parent end
+		return f
+	end
+	Components[Panel.Name] = Panel
+end
+
+----------------------------------------------------------------
+-- Button
+----------------------------------------------------------------
+do
+	local Button = {}; Button.Name = "Button"
+	function Button.Create(props: {[string]: any}): TextButton
+		local b = Instance.new("TextButton")
+		b.Size = props.Size or UDim2.fromOffset(160, 36)
+		b.Text = props.Text or "Button"
+		b.Font = Theme.Font; b.TextSize = Theme.FontSize
+		b.TextColor3 = Theme.Colors.Text
+		b.BackgroundColor3 = Theme.Colors.Fill
+		b.AutoButtonColor = true
+		corner(b); stroke(b)
+		if props.Parent then b.Parent = props.Parent end
+		if typeof(props.OnClick) == "function" then
+			b.MouseButton1Click:Connect(props.OnClick)
+		end
+		return b
+	end
+	Components[Button.Name] = Button
+end
+
+----------------------------------------------------------------
+-- Toggle
+----------------------------------------------------------------
+do
+	local Toggle = {}; Toggle.Name = "Toggle"
+	function Toggle.Create(props: {[string]: any}): Frame
+		local root = Instance.new("Frame")
+		root.BackgroundTransparency = 1
+		root.Size = props.Size or UDim2.fromOffset(220, 28)
+
+		local label = Instance.new("TextLabel")
+		label.BackgroundTransparency = 1
+		label.Font = Theme.Font; label.TextSize = Theme.FontSize
+		label.TextColor3 = Theme.Colors.Text
+		label.TextXAlignment = Enum.TextXAlignment.Left
+		label.Text = props.Text or "Toggle"
+		label.Size = UDim2.new(1, -60, 1, 0)
+		label.Parent = root
+
+		local btn = Instance.new("TextButton")
+		btn.AutoButtonColor = false
+		btn.Text = ""
+		btn.Size = UDim2.fromOffset(48, 24)
+		btn.Position = UDim2.new(1, -52, 0.5, -12)
+		btn.BackgroundColor3 = Theme.Colors.Fill
+		btn.Parent = root
+		corner(btn, 12); stroke(btn)
+
+		local knob = Instance.new("Frame")
+		knob.Size = UDim2.fromOffset(20, 20)
+		knob.Position = UDim2.fromOffset(2, 2)
+		knob.BackgroundColor3 = Theme.Colors.Muted
+		knob.Parent = btn
+		corner(knob, 10)
+
+		local on = props.Value == true
+		local function apply()
+			btn.BackgroundColor3 = on and Theme.Colors.Accent or Theme.Colors.Fill
+			knob.Position = UDim2.fromOffset(on and 26 or 2, 2)
+		end
+		apply()
+
+		btn.MouseButton1Click:Connect(function()
+			on = not on
+			apply()
+			if typeof(props.OnChanged) == "function" then
+				props.OnChanged(on)
+			end
+		end)
+
+		if props.Parent then root.Parent = props.Parent end
+		return root
+	end
+	Components[Toggle.Name] = Toggle
+end
+
+----------------------------------------------------------------
+-- Slider (integer)
+----------------------------------------------------------------
+do
+	local Slider = {}; Slider.Name = "Slider"
+	function Slider.Create(props: {[string]: any}): Frame
+		local min = tonumber(props.Min) or 0
+		local max = tonumber(props.Max) or 100
+		local val = math.clamp(tonumber(props.Value) or min, min, max)
+		local width = props.Width or 220
+
+		local root = Instance.new("Frame"); root.BackgroundTransparency = 1
+		root.Size = UDim2.fromOffset(width, 48)
+
+		local label = Instance.new("TextLabel")
+		label.BackgroundTransparency = 1
+		label.Font = Theme.Font; label.TextSize = Theme.FontSize
+		label.TextColor3 = Theme.Colors.Text
+		label.TextXAlignment = Enum.TextXAlignment.Left
+		label.Text = tostring(props.Text or "Slider")
+		label.Size = UDim2.new(1, 0, 0, 18)
+		label.Parent = root
+
+		local bar = Instance.new("Frame")
+		bar.Size = UDim2.new(1, 0, 0, 6)
+		bar.Position = UDim2.fromOffset(0, 24)
+		bar.BackgroundColor3 = Theme.Colors.Stroke
+		bar.BorderSizePixel = 0
+		bar.Parent = root
+		corner(bar, 3)
+
+		local fill = Instance.new("Frame")
+		fill.Size = UDim2.new(0, 0, 1, 0)
+		fill.BackgroundColor3 = Theme.Colors.Accent
+		fill.BorderSizePixel = 0
+		fill.Parent = bar
+		corner(fill, 3)
+
+		local handle = Instance.new("Frame")
+		handle.Size = UDim2.fromOffset(12, 12)
+		handle.Position = UDim2.fromOffset(0, -3)
+		handle.BackgroundColor3 = Theme.Colors.Text
+		handle.Parent = bar
+		corner(handle, 6)
+
+		local valText = Instance.new("TextLabel")
+		valText.BackgroundTransparency = 1
+		valText.Font = Theme.Font; valText.TextSize = Theme.FontSize
+		valText.TextColor3 = Theme.Colors.Muted
+		valText.TextXAlignment = Enum.TextXAlignment.Right
+		valText.Text = tostring(val)
+		valText.AnchorPoint = Vector2.new(1, 0)
+		valText.Position = UDim2.new(1, 0, 0, 0)
+		valText.Size = UDim2.fromOffset(60, 18)
+		valText.Parent = root
+
+		local function applyFromValue()
+			local range = math.max(1, max - min)
+			local pct = (val - min) / range
+			local w = bar.AbsoluteSize.X
+			local px = math.clamp(math.floor(pct * w + 0.5), 0, math.max(0, w))
+			fill.Size = UDim2.new(0, px, 1, 0)
+			handle.Position = UDim2.fromOffset(px - 6, -3)
+			valText.Text = tostring(val)
+		end
+		task.defer(applyFromValue)
+
+		local dragging = false
+		local function setByPx(px: number)
+			local w = bar.AbsoluteSize.X
+			if w <= 0 then return end
+			local pct = math.clamp(px / w, 0, 1)
+			val = math.floor(min + pct * (max - min) + 0.5)
+			applyFromValue()
+			if typeof(props.OnChanged) == "function" then props.OnChanged(val) end
+		end
+
+		bar.InputBegan:Connect(function(io)
+			if io.UserInputType == Enum.UserInputType.MouseButton1 or io.UserInputType == Enum.UserInputType.Touch then
+				dragging = true
+				setByPx(io.Position.X - bar.AbsolutePosition.X)
+			end
+		end)
+		UserInputService.InputChanged:Connect(function(io)
+			if dragging and (io.UserInputType == Enum.UserInputType.MouseMovement or io.UserInputType == Enum.UserInputType.Touch) then
+				setByPx(io.Position.X - bar.AbsolutePosition.X)
+			end
+		end)
+		UserInputService.InputEnded:Connect(function(io)
+			if io.UserInputType == Enum.UserInputType.MouseButton1 or io.UserInputType == Enum.UserInputType.Touch then
+				dragging = false
+			end
+		end)
+
+		if props.Parent then root.Parent = props.Parent end
+		return root
+	end
+	Components[Slider.Name] = Slider
+end
+
+----------------------------------------------------------------
+-- TextBox
+----------------------------------------------------------------
+do
+	local TB = {}; TB.Name = "TextBox"
+	function TB.Create(props: {[string]: any}): TextBox
+		local tb = Instance.new("TextBox")
+		tb.Size = props.Size or UDim2.fromOffset(220, 32)
+		tb.Font = Theme.Font; tb.TextSize = Theme.FontSize
+		tb.TextColor3 = Theme.Colors.Text
+		tb.PlaceholderText = props.Placeholder or ""
+		tb.BackgroundColor3 = Theme.Colors.Fill
+		corner(tb); stroke(tb)
+
+		if props.Text then tb.Text = tostring(props.Text) end
+		if props.Parent then tb.Parent = props.Parent end
+		if typeof(props.OnSubmit) == "function" then
+			tb.FocusLost:Connect(function(enter)
+				if enter then props.OnSubmit(tb.Text) end
+			end)
+		end
+		return tb
+	end
+	Components[TB.Name] = TB
+end
+
+----------------------------------------------------------------
+-- SideTabs ON Window (links im Window, Buttons links / Content rechts)
+----------------------------------------------------------------
+local function AddSideTabsOnWindow(window: Frame, config: {[string]: any})
+	local names = config.Tabs or {"Main"}
+	local sideW = config.Width or 120
+
+	local content = window:FindFirstChild("__Content")
+	if not content or not content:IsA("Frame") then
+		error("Window hat keinen __Content-Bereich – nutze UI.AddWindow/Panel mit Title.")
+	end
+
+	local root = Instance.new("Frame")
+	root.Name = "__SideTabsRoot"
+	root.BackgroundTransparency = 1
+	root.Size = UDim2.new(1, 0, 1, 0)
+	root.Parent = content
+
+	local sidebar = Instance.new("Frame")
+	sidebar.BackgroundColor3 = Theme.Colors.Fill
+	sidebar.Size = UDim2.new(0, sideW, 1, 0)
+	sidebar.Parent = root
+	corner(sidebar); stroke(sidebar)
+
+	local list = Instance.new("UIListLayout")
+	list.FillDirection = Enum.FillDirection.Vertical
+	list.Padding = UDim.new(0, 4)
+	list.HorizontalAlignment = Enum.HorizontalAlignment.Stretch
+	list.VerticalAlignment = Enum.VerticalAlignment.Top
+	list.Parent = sidebar
+
+	local pad = Instance.new("UIPadding")
+	pad.PaddingTop = UDim.new(0, Theme.Padding)
+	pad.PaddingLeft = UDim.new(0, Theme.Padding)
+	pad.PaddingRight = UDim.new(0, Theme.Padding)
+	pad.Parent = sidebar
+
+	local right = Instance.new("Frame")
+	right.BackgroundTransparency = 1
+	right.Size = UDim2.new(1, -sideW - Theme.Padding, 1, 0)
+	right.Position = UDim2.fromOffset(sideW + Theme.Padding, 0)
+	right.Parent = root
+
+	local Panels: {[string]: Frame} = {}
+	local Buttons: {[string]: TextButton} = {}
+	local currentName: string? = nil
+
+	local function highlight(active: string)
+		for n, btn in pairs(Buttons) do
+			btn.BackgroundColor3 = (n == active) and Theme.Colors.Active or Theme.Colors.Panel
+		end
+	end
+
+	local function show(name: string)
+		for n, p in pairs(Panels) do
+			p.Visible = (n == name)
+		end
+		currentName = name
+		highlight(name)
+	end
+
+	for _, name in ipairs(names) do
+		local b = Instance.new("TextButton")
+		b.Text = name
+		b.AutoButtonColor = true
+		b.Font = Theme.Font
+		b.TextSize = Theme.FontSize
+		b.TextColor3 = Theme.Colors.Text
+		b.BackgroundColor3 = Theme.Colors.Panel
+		b.Size = UDim2.new(1, -Theme.Padding*2, 0, 28)
+		b.Parent = sidebar
+		corner(b); stroke(b)
+		Buttons[name] = b
+
+		local p = Instance.new("Frame")
+		p.BackgroundTransparency = 1
+		p.Size = UDim2.new(1, 0, 1, 0)
+		p.Visible = false
+		p.Parent = right
+		Panels[name] = p
+
+		b.MouseButton1Click:Connect(function() show(name) end)
+	end
+
+	if names[1] then show(names[1]) end
+
+	local con
+	if typeof(config.Keybinds) == "table" then
+		con = UserInputService.InputBegan:Connect(function(input, gpe)
+			if gpe then return end
+			local mapped = config.Keybinds[input.KeyCode]
+			if mapped and Panels[mapped] then show(mapped) end
+		end)
+		root.Destroying:Connect(function() if con then con:Disconnect() end end)
+	end
+
+	return {
+		Root = root,
+		Panels = Panels,
+		Show = show,
+		GetActive = function() return currentName end,
+	}
+end
+
+----------------------------------------------------------------
+-- Public API
+----------------------------------------------------------------
+local UI = {}
+UI.NAME = "SideTabsUILib"
+UI.VERSION = "1.0.0"
+UI.Theme = Theme
+
+function UI.Create(name: string, props: {[string]: any}?): Instance
+	local c = Components[name]
+	assert(c, ("Unknown component '%s'"):format(name))
+	return c.Create(props or {})
+end
+
+function UI.Render(node: {[string]: any}, parent: Instance?): Instance
+	local inst = UI.Create(node.type, node.props or {})
+	if parent then inst.Parent = parent end
+	for _, child in ipairs(node.children or {}) do
+		UI.Render(child, inst)
+	end
+	return inst
+end
+
+function UI.AddWindow(title: string, parent: Instance?): Frame
+	local screen = parent or ensureScreen()
+	return UI.Create("Panel", {
+		Parent = screen,
+		Title = title,
+		Size = UDim2.fromOffset(360, 240),
+	})
+end
+
+function UI.AddSideTabsOnWindow(window: Frame, config: {[string]: any})
+	return AddSideTabsOnWindow(window, config or {})
+end
+
+function UI.AddButton(text: string, parent: Instance, onClick: (() -> ())?): TextButton
+	return UI.Create("Button", { Parent = parent, Text = text, OnClick = onClick })
+end
+
+function UI.AddToggle(text: string, parent: Instance, default: boolean?, onChanged: ((boolean)->())?): Frame
+	return UI.Create("Toggle", { Parent = parent, Text = text, Value = default or false, OnChanged = onChanged })
+end
+
+function UI.AddSlider(text: string, parent: Instance, min: number, max: number, value: number, onChanged: ((number)->())?): Frame
+	return UI.Create("Slider", { Parent = parent, Text = text, Min = min, Max = max, Value = value, OnChanged = onChanged })
+end
+
+function UI.AddTextBox(placeholder: string, parent: Instance, onSubmit: ((string)->())?, size: UDim2?): TextBox
+	return UI.Create("TextBox", { Parent = parent, Placeholder = placeholder, Size = size or UDim2.fromOffset(220, 32), OnSubmit = onSubmit })
+end
+
+return UI
