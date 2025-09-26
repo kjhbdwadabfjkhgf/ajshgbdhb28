@@ -1,5 +1,0 @@
-local library = loadstring(game:HttpGet("https://raw.githubusercontent.com/kjhbdwadabfjkhgf/ajshgbdhb28/main/libuiuahwdeduhfawdad"))()
-local win = UI.AddWindow("Muki Script")  
-local tabs = UI.AddSideTabsOnWindow(win, { Tabs = {"Main","Settings"} })
-UI.AddButton("Start", parent, function() print("los") end)
-local stack = UI.Create("Stack", { Parent = tabs.Panels["Settings"] })
